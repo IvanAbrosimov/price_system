@@ -5,7 +5,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Product, ProductsResponse } from '../types'
 
-const API_BASE = '/api'
+// API URL - берём из переменных окружения или используем /api для локальной разработки
+const API_BASE = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : '/api'
 
 // Демо-данные для работы без backend
 const DEMO_PRODUCTS: Product[] = [
