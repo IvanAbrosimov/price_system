@@ -53,16 +53,17 @@ export interface CartState {
 }
 
 // Группы производителей для вкладок
+// Каждая группа содержит название производителя + его линейки для фильтрации
 export const MANUFACTURER_GROUPS: Record<string, string[]> = {
-  'Air roxy': ['Air roxy'],
-  'Chint': ['Chint', 'Щиты Chint'],
-  'DKC': ['DKC'],
-  'Jung': ['ls990', 'eco profi'],
-  'Legrand': ['bticino', 'valena', 'suno', 'niloe step', 'Niloe(Этика)', 'asfora', 'unica'],
-  'Merten': ['merten'],
-  'Practibox S': ['Щиты Practibox S'],
-  'Schneider Electric': ['Easy9', 'Resi9', 'Щиты SE', 'Rx3'],
-  'Wago': ['Wago']
+  'Air roxy': ['Air roxy', 'air roxy'],
+  'Chint': ['Chint', 'chint', 'Щиты Chint'],
+  'DKC': ['DKC', 'dkc'],
+  'Jung': ['Jung', 'jung', 'ls990', 'LS990', 'LS 990', 'eco profi', 'Eco Profi'],
+  'Legrand': ['Legrand', 'legrand', 'bticino', 'Bticino', 'valena', 'Valena', 'suno', 'Suno', 'niloe step', 'Niloe Step', 'Niloe(Этика)', 'asfora', 'Asfora', 'unica', 'Unica'],
+  'Merten': ['Merten', 'merten'],
+  'Practibox S': ['Practibox S', 'Practibox', 'practibox', 'Щиты Practibox S'],
+  'Schneider Electric': ['Schneider Electric', 'Schneider', 'schneider', 'Easy9', 'easy9', 'Resi9', 'resi9', 'Щиты SE', 'Rx3', 'rx3'],
+  'Wago': ['Wago', 'wago', 'WAGO']
 }
 
 // Список групп для вкладок
