@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Базовые стили */
+body {
+  @apply bg-gray-50 text-gray-900;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Стили таблицы в стиле Google Sheets */
+.table-container {
+  @apply overflow-auto bg-white border border-gray-300 rounded-lg shadow-sm;
+  max-height: calc(100vh - 200px);
+}
+
+.product-table {
+  @apply w-full border-collapse text-sm;
+}
+
+.product-table thead {
+  @apply sticky top-0 z-10 bg-gray-100;
+}
+
+.product-table th {
+  @apply px-3 py-2 text-left font-semibold text-gray-700 border-b border-r border-gray-300;
+  @apply whitespace-nowrap select-none;
+}
+
+.product-table th:last-child {
+  @apply border-r-0;
+}
+
+.product-table td {
+  @apply px-3 py-2 border-b border-r border-gray-200;
+}
+
+.product-table td:last-child {
+  @apply border-r-0;
+}
+
+.product-table tbody tr:hover {
+  @apply bg-blue-50;
+}
+
+.product-table tbody tr.has-quantity {
+  @apply bg-green-50;
+}
+
+.product-table tbody tr.has-quantity:hover {
+  @apply bg-green-100;
+}
+
+/* Ячейки таблицы */
+.cell-article {
+  @apply font-mono text-xs text-gray-600 whitespace-nowrap;
+}
+
+.cell-name {
+  @apply max-w-md truncate;
+}
+
+.cell-price {
+  @apply text-right font-medium whitespace-nowrap;
+}
+
+.cell-lead-time {
+  @apply text-center whitespace-nowrap text-xs;
+}
+
+.cell-lead-time.fast {
+  @apply text-green-600 font-medium;
+}
+
+.cell-lead-time.medium {
+  @apply text-yellow-600;
+}
+
+.cell-lead-time.slow {
+  @apply text-red-600;
+}
+
+/* Ввод количества */
+.quantity-input {
+  @apply w-20 px-2 py-1 text-center border border-gray-300 rounded;
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+}
+
+.quantity-input::-webkit-inner-spin-button,
+.quantity-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Вкладки производителей */
+.tabs-container {
+  @apply flex flex-wrap gap-1 p-2 bg-white border-b border-gray-200;
+}
+
+.tab-button {
+  @apply px-3 py-1.5 text-sm font-medium rounded-md transition-colors;
+  @apply hover:bg-gray-100;
+}
+
+.tab-button.active {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+
+/* Строка-заголовок группы производителей */
+.group-header {
+  @apply bg-gray-200 font-semibold cursor-pointer;
+}
+
+.group-header:hover {
+  @apply bg-gray-300;
+}
+
+.group-header td {
+  @apply py-2 px-3;
+}
+
+.group-toggle {
+  @apply mr-2 inline-block transition-transform;
+}
+
+.group-toggle.collapsed {
+  @apply -rotate-90;
+}
+
+/* Панель поиска */
+.search-container {
+  @apply flex items-center gap-4 p-4 bg-white border-b border-gray-200;
+}
+
+.search-input {
+  @apply flex-1 max-w-md px-4 py-2 border border-gray-300 rounded-lg;
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+}
+
+/* Корзина */
+.cart-button {
+  @apply relative p-2 rounded-full hover:bg-gray-100 transition-colors;
+}
+
+.cart-badge {
+  @apply absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center;
+  @apply bg-red-500 text-white text-xs font-bold rounded-full;
+}
+
+.cart-drawer {
+  @apply fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50;
+  @apply transform transition-transform duration-300;
+}
+
+.cart-drawer.closed {
+  @apply translate-x-full;
+}
+
+.cart-overlay {
+  @apply fixed inset-0 bg-black bg-opacity-50 z-40;
+}
+
+.cart-header {
+  @apply flex items-center justify-between p-4 border-b border-gray-200;
+}
+
+.cart-content {
+  @apply flex-1 overflow-auto p-4;
+}
+
+.cart-footer {
+  @apply p-4 border-t border-gray-200 bg-gray-50;
+}
+
+.cart-item {
+  @apply flex flex-col p-3 mb-2 bg-gray-50 rounded-lg;
+}
+
+.cart-item-name {
+  @apply font-medium text-sm truncate;
+}
+
+.cart-item-details {
+  @apply flex items-center justify-between mt-2 text-sm text-gray-600;
+}
+
+.cart-total {
+  @apply text-xl font-bold;
+}
+
+/* Кнопки */
+.btn {
+  @apply px-4 py-2 font-medium rounded-lg transition-colors;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+}
+
+.btn-danger {
+  @apply bg-red-600 text-white hover:bg-red-700;
+}
+
+/* Загрузка */
+.loading-spinner {
+  @apply animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full;
+}
+
+.loading-container {
+  @apply flex items-center justify-center py-12;
+}
+
+/* Форматирование чисел */
+.price-format {
+  font-variant-numeric: tabular-nums;
+}
