@@ -3,26 +3,56 @@
  */
 
 import { useState, useMemo } from 'react'
-import { useProducts, useManufacturers } from './hooks/useProducts'
+import { useProducts } from './hooks/useProducts'
 import { useCart } from './hooks/useCart'
 import { getDynamicLeadTime } from './utils/leadTime'
+import { MANUFACTURER_GROUPS } from './types'
 import CartDrawer from './components/CartDrawer'
+
+// 9 производителей для вкладок
+const MANUFACTURER_TABS = ['Все', ...Object.keys(MANUFACTURER_GROUPS)]
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('Все')
   const [isCartOpen, setIsCartOpen] = useState(false)
+  // Состояние схлопывания групп производителей (ключ - название производителя)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    // По умолчанию все группы свёрнуты
+    const initial: Record<string, boolean> = {}
+    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
+      initial[manufacturer] = true // true = свёрнуто
+    })
+    return initial
+  })
   
   const { products, loading, total } = useProducts({
     manufacturer: activeTab === 'Все' ? undefined : activeTab,
     search: searchQuery
   })
-  const { manufacturers } = useManufacturers()
   const cartHook = useCart()
   const { items, addItem, getQuantity, getTotal, getItemsCount, removeItem, clear } = cartHook
 
-  // Табы: "Все" + производители
-  const tabs = useMemo(() => ['Все', ...manufacturers], [manufacturers])
+  // Группировка товаров по производителю для вкладки "Все"
+  const groupedProducts = useMemo(() => {
+    if (activeTab !== 'Все') {
+      return null // На конкретных вкладках не группируем
+    }
+    
+    const groups: Record<string, typeof products> = {}
+    
+    products.forEach(product => {
+      // Определяем группу производителя
+      const manufacturerGroup = findManufacturerGroup(product.manufacturer)
+      if (!groups[manufacturerGroup]) {
+        groups[manufacturerGroup] = []
+      }
+      groups[manufacturerGroup].push(product)
+    })
+    
+    // Сортируем по имени производителя
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [products, activeTab])
 
   // Расчёт динамического срока для каждого товара
   const getLeadTime = (astanaQty: number, almatyQty: number, qty: number) => {
@@ -39,141 +69,151 @@ export default function App() {
     }
   }
 
+  // Переключение схлопывания группы
+  const toggleGroup = (manufacturer: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [manufacturer]: !prev[manufacturer]
+    }))
+  }
+
+  // Развернуть/свернуть все группы
+  const toggleAllGroups = (collapse: boolean) => {
+    const newState: Record<string, boolean> = {}
+    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
+      newState[manufacturer] = collapse
+    })
+    setCollapsedGroups(newState)
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-white">
-      {/* Верхняя панель - как в Google Sheets */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-gray-300 bg-gray-50">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-600">📊 Прайс-каталог</span>
-          <span className="text-xs text-gray-400">Найдено: {total} товаров</span>
+    <div className="app-container">
+      {/* Верхняя панель */}
+      <div className="header-bar">
+        <div className="header-left">
+          <span className="header-title">📊 Прайс-каталог</span>
+          <span className="header-count">Найдено: {total} товаров</span>
         </div>
         
         {/* Кнопка корзины */}
         <button
           onClick={() => setIsCartOpen(true)}
-          className="relative flex items-center gap-1 px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+          className="cart-button-main"
         >
           🛒 Корзина
           {getItemsCount() > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="cart-count-badge">
               {getItemsCount()}
             </span>
           )}
         </button>
       </div>
 
-      {/* Строка формул / поиска - как в Google Sheets */}
-      <div className="flex items-center border-b border-gray-300 bg-gray-50">
-        <div className="flex items-center px-2 py-1 border-r border-gray-300 bg-gray-100 min-w-[80px]">
-          <span className="text-xs text-gray-500">🔍</span>
-        </div>
+      {/* Строка поиска */}
+      <div className="search-bar">
+        <div className="search-icon">🔍</div>
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Поиск по артикулу или наименованию..."
-          className="flex-1 px-2 py-1 text-sm border-0 focus:outline-none focus:ring-0"
+          className="search-input-field"
         />
+        {searchQuery && (
+          <button 
+            onClick={() => setSearchQuery('')}
+            className="search-clear"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
-      {/* Табы производителей - как листы в Google Sheets (внизу) */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Таблица на весь экран */}
-        <div className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-gray-100 border-b border-gray-300">
-                <th className="border-r border-gray-300 px-2 py-1 text-left font-medium text-gray-700 w-[120px]">
-                  Производитель
-                </th>
-                <th className="border-r border-gray-300 px-2 py-1 text-left font-medium text-gray-700 w-[100px]">
-                  Артикул
-                </th>
-                <th className="border-r border-gray-300 px-2 py-1 text-left font-medium text-gray-700">
-                  Наименование
-                </th>
-                <th className="border-r border-gray-300 px-2 py-1 text-right font-medium text-gray-700 w-[90px]">
-                  Цена, ₽
-                </th>
-                <th className="border-r border-gray-300 px-2 py-1 text-center font-medium text-gray-700 w-[100px]">
-                  Срок
-                </th>
-                <th className="px-2 py-1 text-center font-medium text-gray-700 w-[80px]">
-                  Кол-во
-                </th>
+      {/* Основное содержимое */}
+      <div className="main-content">
+        {/* Кнопки развернуть/свернуть все (только на вкладке "Все") */}
+        {activeTab === 'Все' && !loading && products.length > 0 && (
+          <div className="collapse-controls">
+            <button 
+              onClick={() => toggleAllGroups(false)}
+              className="collapse-btn"
+            >
+              ▼ Развернуть все
+            </button>
+            <button 
+              onClick={() => toggleAllGroups(true)}
+              className="collapse-btn"
+            >
+              ▶ Свернуть все
+            </button>
+          </div>
+        )}
+
+        {/* Таблица */}
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th className="col-manufacturer">Производитель</th>
+                <th className="col-article">Артикул</th>
+                <th className="col-name">Наименование</th>
+                <th className="col-price">Цена, ₽</th>
+                <th className="col-lead-time">Срок</th>
+                <th className="col-quantity">Кол-во</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="loading-cell">
+                    <div className="loading-spinner-small"></div>
                     Загрузка...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="empty-cell">
                     Товары не найдены
                   </td>
                 </tr>
+              ) : activeTab === 'Все' && groupedProducts ? (
+                // Отображение с группировкой по производителям
+                groupedProducts.map(([manufacturer, manufacturerProducts]) => (
+                  <ManufacturerGroupRows
+                    key={manufacturer}
+                    manufacturer={manufacturer}
+                    products={manufacturerProducts}
+                    isCollapsed={collapsedGroups[manufacturer] ?? true}
+                    onToggle={() => toggleGroup(manufacturer)}
+                    getQuantity={getQuantity}
+                    getLeadTime={getLeadTime}
+                    onQuantityChange={handleQuantityChange}
+                  />
+                ))
               ) : (
-                products.map((product, idx) => {
-                  const qty = getQuantity(product.article)
-                  const leadTime = getLeadTime(product.astanaQty || 0, product.almatyQty || 0, qty)
-                  const isEven = idx % 2 === 0
-                  
-                  return (
-                    <tr 
-                      key={product.id}
-                      className={`border-b border-gray-200 hover:bg-blue-50 ${isEven ? 'bg-white' : 'bg-gray-50'}`}
-                    >
-                      <td className="border-r border-gray-200 px-2 py-1 text-gray-600">
-                        {product.manufacturer}
-                      </td>
-                      <td className="border-r border-gray-200 px-2 py-1 font-mono text-xs text-gray-700">
-                        {product.article}
-                      </td>
-                      <td className="border-r border-gray-200 px-2 py-1 text-gray-800">
-                        {product.name}
-                      </td>
-                      <td className="border-r border-gray-200 px-2 py-1 text-right font-medium text-gray-900">
-                        {product.priceRub.toLocaleString('ru-RU')}
-                      </td>
-                      <td className={`border-r border-gray-200 px-2 py-1 text-center text-xs ${
-                        leadTime === 'по запросу' ? 'text-red-600' : 
-                        leadTime === '6-10 дней' ? 'text-green-600' : 'text-orange-600'
-                      }`}>
-                        {leadTime}
-                      </td>
-                      <td className="px-1 py-1">
-                        <input
-                          type="number"
-                          min="0"
-                          value={qty || ''}
-                          onChange={(e) => handleQuantityChange(product, parseInt(e.target.value) || 0)}
-                          className="w-full px-1 py-0.5 text-center text-sm border border-gray-300 rounded focus:border-blue-500 focus:outline-none"
-                          placeholder="0"
-                        />
-                      </td>
-                    </tr>
-                  )
-                })
+                // Обычное отображение без группировки (на вкладках конкретных производителей)
+                products.map((product, idx) => (
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    isEven={idx % 2 === 0}
+                    quantity={getQuantity(product.article)}
+                    leadTime={getLeadTime(product.astanaQty || 0, product.almatyQty || 0, getQuantity(product.article))}
+                    onQuantityChange={handleQuantityChange}
+                  />
+                ))
               )}
             </tbody>
           </table>
         </div>
 
         {/* Табы листов - внизу как в Google Sheets */}
-        <div className="flex items-center border-t border-gray-300 bg-gray-100 overflow-x-auto">
-          {tabs.map((tab) => (
+        <div className="tabs-bar">
+          {MANUFACTURER_TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm border-r border-gray-300 whitespace-nowrap transition-colors ${
-                activeTab === tab
-                  ? 'bg-white text-gray-900 font-medium border-t-2 border-t-blue-500'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              className={`tab-item ${activeTab === tab ? 'active' : ''}`}
             >
               {tab}
             </button>
@@ -195,4 +235,129 @@ export default function App() {
       />
     </div>
   )
+}
+
+/**
+ * Находит группу производителя по имени (из линейки)
+ */
+function findManufacturerGroup(productManufacturer: string): string {
+  const normalizedProduct = productManufacturer.toLowerCase()
+  
+  for (const [group, lines] of Object.entries(MANUFACTURER_GROUPS)) {
+    for (const line of lines) {
+      if (normalizedProduct.includes(line.toLowerCase()) || line.toLowerCase().includes(normalizedProduct)) {
+        return group
+      }
+    }
+    // Также проверяем совпадение с названием самой группы
+    if (normalizedProduct.includes(group.toLowerCase()) || group.toLowerCase().includes(normalizedProduct)) {
+      return group
+    }
+  }
+  
+  // Если не нашли - возвращаем как есть
+  return productManufacturer
+}
+
+// Компонент строк группы производителя
+interface ManufacturerGroupRowsProps {
+  manufacturer: string
+  products: Array<{
+    id: number
+    manufacturer: string
+    article: string
+    name: string
+    priceRub: number
+    astanaQty: number | null
+    almatyQty: number | null
+  }>
+  isCollapsed: boolean
+  onToggle: () => void
+  getQuantity: (article: string) => number
+  getLeadTime: (astanaQty: number, almatyQty: number, qty: number) => string
+  onQuantityChange: (product: any, qty: number) => void
+}
+
+function ManufacturerGroupRows({
+  manufacturer,
+  products,
+  isCollapsed,
+  onToggle,
+  getQuantity,
+  getLeadTime,
+  onQuantityChange
+}: ManufacturerGroupRowsProps) {
+  return (
+    <>
+      {/* Строка-заголовок группы */}
+      <tr className="group-header-row" onClick={onToggle}>
+        <td colSpan={6}>
+          <div className="group-header-content">
+            <span className={`group-arrow ${isCollapsed ? '' : 'expanded'}`}>
+              ▶
+            </span>
+            <span className="group-name">{manufacturer}</span>
+            <span className="group-count">({products.length} товаров)</span>
+          </div>
+        </td>
+      </tr>
+      
+      {/* Строки товаров (если не свёрнуто) */}
+      {!isCollapsed && products.map((product, idx) => (
+        <ProductRow
+          key={product.id}
+          product={product}
+          isEven={idx % 2 === 0}
+          quantity={getQuantity(product.article)}
+          leadTime={getLeadTime(product.astanaQty || 0, product.almatyQty || 0, getQuantity(product.article))}
+          onQuantityChange={onQuantityChange}
+        />
+      ))}
+    </>
+  )
+}
+
+// Компонент строки товара
+interface ProductRowProps {
+  product: {
+    id: number
+    manufacturer: string
+    article: string
+    name: string
+    priceRub: number
+    astanaQty: number | null
+    almatyQty: number | null
+  }
+  isEven: boolean
+  quantity: number
+  leadTime: string
+  onQuantityChange: (product: any, qty: number) => void
+}
+
+function ProductRow({ product, isEven, quantity, leadTime, onQuantityChange }: ProductRowProps) {
+  return (
+    <tr className={`product-row ${isEven ? 'even' : 'odd'} ${quantity > 0 ? 'has-quantity' : ''}`}>
+      <td className="cell-manufacturer">{product.manufacturer}</td>
+      <td className="cell-article">{product.article}</td>
+      <td className="cell-name" title={product.name}>{product.name}</td>
+      <td className="cell-price">{product.priceRub.toLocaleString('ru-RU')}</td>
+      <td className={`cell-lead-time ${getLeadTimeClass(leadTime)}`}>{leadTime}</td>
+      <td className="cell-quantity">
+        <input
+          type="number"
+          min="0"
+          value={quantity || ''}
+          onChange={(e) => onQuantityChange(product, parseInt(e.target.value) || 0)}
+          className="quantity-input-field"
+          placeholder="0"
+        />
+      </td>
+    </tr>
+  )
+}
+
+function getLeadTimeClass(leadTime: string): string {
+  if (leadTime === 'по запросу') return 'slow'
+  if (leadTime === '6-10 дней') return 'fast'
+  return 'medium'
 }

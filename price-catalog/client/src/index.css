@@ -2,70 +2,196 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Базовые стили */
+/* =============================================
+   БАЗОВЫЕ СТИЛИ
+   ============================================= */
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   @apply bg-gray-50 text-gray-900;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Стили таблицы в стиле Google Sheets */
-.table-container {
-  @apply overflow-auto bg-white border border-gray-300 rounded-lg shadow-sm;
-  max-height: calc(100vh - 200px);
+/* =============================================
+   ОСНОВНОЙ КОНТЕЙНЕР
+   ============================================= */
+
+.app-container {
+  @apply h-screen flex flex-col bg-white;
+  overflow: hidden;
 }
 
-.product-table {
+/* =============================================
+   ШАПКА
+   ============================================= */
+
+.header-bar {
+  @apply flex items-center justify-between px-3 py-2 border-b border-gray-300 bg-gray-50;
+  flex-shrink: 0;
+}
+
+.header-left {
+  @apply flex items-center gap-3;
+}
+
+.header-title {
+  @apply text-sm font-semibold text-gray-700;
+}
+
+.header-count {
+  @apply text-xs text-gray-400;
+}
+
+/* Кнопка корзины в шапке */
+.cart-button-main {
+  @apply relative flex items-center gap-2 px-4 py-2 text-sm font-medium;
+  @apply bg-green-600 text-white rounded-lg;
+  @apply hover:bg-green-700 active:bg-green-800;
+  @apply transition-colors duration-150;
+}
+
+.cart-count-badge {
+  @apply absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1;
+  @apply flex items-center justify-center;
+  @apply bg-red-500 text-white text-xs font-bold rounded-full;
+}
+
+/* =============================================
+   СТРОКА ПОИСКА
+   ============================================= */
+
+.search-bar {
+  @apply flex items-center border-b border-gray-300 bg-gray-50;
+  flex-shrink: 0;
+}
+
+.search-icon {
+  @apply flex items-center justify-center px-3 py-2 border-r border-gray-300 bg-gray-100;
+  @apply text-gray-500 text-sm;
+}
+
+.search-input-field {
+  @apply flex-1 px-3 py-2 text-sm bg-white;
+  @apply border-0 outline-none;
+  @apply placeholder:text-gray-400;
+}
+
+.search-clear {
+  @apply px-3 py-2 text-gray-400 hover:text-gray-600;
+  @apply transition-colors;
+}
+
+/* =============================================
+   ОСНОВНОЙ КОНТЕНТ
+   ============================================= */
+
+.main-content {
+  @apply flex-1 flex flex-col overflow-hidden;
+}
+
+/* Кнопки развернуть/свернуть */
+.collapse-controls {
+  @apply flex gap-2 px-3 py-2 bg-gray-100 border-b border-gray-200;
+  flex-shrink: 0;
+}
+
+.collapse-btn {
+  @apply px-3 py-1 text-xs font-medium text-gray-600 bg-white rounded border border-gray-300;
+  @apply hover:bg-gray-50 active:bg-gray-100;
+  @apply transition-colors;
+}
+
+/* =============================================
+   ТАБЛИЦА
+   ============================================= */
+
+.table-wrapper {
+  @apply flex-1 overflow-auto;
+}
+
+.data-table {
   @apply w-full border-collapse text-sm;
+  min-width: 700px;
 }
 
-.product-table thead {
-  @apply sticky top-0 z-10 bg-gray-100;
+/* Заголовки таблицы */
+.data-table thead {
+  @apply sticky top-0 z-10;
 }
 
-.product-table th {
-  @apply px-3 py-2 text-left font-semibold text-gray-700 border-b border-r border-gray-300;
+.data-table th {
+  @apply px-3 py-2 text-left font-semibold text-gray-700;
+  @apply bg-gray-100 border-b border-r border-gray-300;
   @apply whitespace-nowrap select-none;
 }
 
-.product-table th:last-child {
+.data-table th:last-child {
   @apply border-r-0;
 }
 
-.product-table td {
+/* Размеры колонок */
+.col-manufacturer { width: 130px; }
+.col-article { width: 110px; }
+.col-name { min-width: 200px; }
+.col-price { width: 100px; text-align: right; }
+.col-lead-time { width: 100px; text-align: center; }
+.col-quantity { width: 90px; text-align: center; }
+
+/* Ячейки таблицы */
+.data-table td {
   @apply px-3 py-2 border-b border-r border-gray-200;
 }
 
-.product-table td:last-child {
+.data-table td:last-child {
   @apply border-r-0;
 }
 
-.product-table tbody tr:hover {
+/* Строки товаров */
+.product-row.even {
+  @apply bg-white;
+}
+
+.product-row.odd {
+  @apply bg-gray-50;
+}
+
+.product-row:hover {
   @apply bg-blue-50;
 }
 
-.product-table tbody tr.has-quantity {
+.product-row.has-quantity {
   @apply bg-green-50;
 }
 
-.product-table tbody tr.has-quantity:hover {
+.product-row.has-quantity:hover {
   @apply bg-green-100;
 }
 
-/* Ячейки таблицы */
+/* Ячейки */
+.cell-manufacturer {
+  @apply text-gray-600 text-xs;
+}
+
 .cell-article {
-  @apply font-mono text-xs text-gray-600 whitespace-nowrap;
+  @apply font-mono text-xs text-gray-700 whitespace-nowrap;
 }
 
 .cell-name {
-  @apply max-w-md truncate;
+  @apply text-gray-800 truncate;
+  max-width: 300px;
 }
 
 .cell-price {
-  @apply text-right font-medium whitespace-nowrap;
+  @apply text-right font-medium text-gray-900 whitespace-nowrap tabular-nums;
 }
 
 .cell-lead-time {
-  @apply text-center whitespace-nowrap text-xs;
+  @apply text-center text-xs whitespace-nowrap;
 }
 
 .cell-lead-time.fast {
@@ -73,111 +199,167 @@ body {
 }
 
 .cell-lead-time.medium {
-  @apply text-yellow-600;
+  @apply text-orange-600;
 }
 
 .cell-lead-time.slow {
   @apply text-red-600;
 }
 
-/* Ввод количества */
-.quantity-input {
-  @apply w-20 px-2 py-1 text-center border border-gray-300 rounded;
-  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+.cell-quantity {
+  @apply text-center;
 }
 
-.quantity-input::-webkit-inner-spin-button,
-.quantity-input::-webkit-outer-spin-button {
+/* Ввод количества */
+.quantity-input-field {
+  @apply w-full px-2 py-1 text-center text-sm;
+  @apply border border-gray-300 rounded;
+  @apply focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+}
+
+.quantity-input-field::-webkit-inner-spin-button,
+.quantity-input-field::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-/* Вкладки производителей */
-.tabs-container {
-  @apply flex flex-wrap gap-1 p-2 bg-white border-b border-gray-200;
+/* Состояния загрузки и пустоты */
+.loading-cell,
+.empty-cell {
+  @apply text-center py-12 text-gray-500;
 }
 
-.tab-button {
-  @apply px-3 py-1.5 text-sm font-medium rounded-md transition-colors;
-  @apply hover:bg-gray-100;
+.loading-spinner-small {
+  @apply inline-block w-4 h-4 mr-2 border-2 border-blue-600 border-t-transparent rounded-full animate-spin;
 }
 
-.tab-button.active {
-  @apply bg-blue-600 text-white hover:bg-blue-700;
+/* =============================================
+   ГРУППЫ ПРОИЗВОДИТЕЛЕЙ (СХЛОПЫВАНИЕ)
+   ============================================= */
+
+.group-header-row {
+  @apply cursor-pointer select-none;
 }
 
-/* Строка-заголовок группы производителей */
-.group-header {
-  @apply bg-gray-200 font-semibold cursor-pointer;
+.group-header-row:hover {
+  @apply bg-gray-200;
 }
 
-.group-header:hover {
-  @apply bg-gray-300;
+.group-header-row td {
+  @apply py-0 px-0 bg-gray-100 border-b-2 border-gray-300;
 }
 
-.group-header td {
-  @apply py-2 px-3;
+.group-header-content {
+  @apply flex items-center gap-2 px-3 py-2;
 }
 
-.group-toggle {
-  @apply mr-2 inline-block transition-transform;
+.group-arrow {
+  @apply inline-flex items-center justify-center w-5 h-5 text-gray-500;
+  @apply transition-transform duration-200;
+  font-size: 10px;
 }
 
-.group-toggle.collapsed {
-  @apply -rotate-90;
+.group-arrow.expanded {
+  transform: rotate(90deg);
 }
 
-/* Панель поиска */
-.search-container {
-  @apply flex items-center gap-4 p-4 bg-white border-b border-gray-200;
+.group-name {
+  @apply font-semibold text-gray-800;
 }
 
-.search-input {
-  @apply flex-1 max-w-md px-4 py-2 border border-gray-300 rounded-lg;
-  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+.group-count {
+  @apply text-xs text-gray-500;
 }
 
-/* Корзина */
-.cart-button {
-  @apply relative p-2 rounded-full hover:bg-gray-100 transition-colors;
+/* =============================================
+   ВКЛАДКИ ПРОИЗВОДИТЕЛЕЙ (ВНИЗУ)
+   ============================================= */
+
+.tabs-bar {
+  @apply flex items-center border-t border-gray-300 bg-gray-100;
+  @apply overflow-x-auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
-.cart-badge {
-  @apply absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center;
-  @apply bg-red-500 text-white text-xs font-bold rounded-full;
+.tabs-bar::-webkit-scrollbar {
+  height: 4px;
 }
 
-.cart-drawer {
-  @apply fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50;
-  @apply transform transition-transform duration-300;
+.tabs-bar::-webkit-scrollbar-track {
+  @apply bg-gray-200;
 }
 
-.cart-drawer.closed {
-  @apply translate-x-full;
+.tabs-bar::-webkit-scrollbar-thumb {
+  @apply bg-gray-400 rounded;
 }
+
+.tab-item {
+  @apply px-4 py-2.5 text-sm font-medium whitespace-nowrap;
+  @apply border-r border-gray-300;
+  @apply transition-colors duration-150;
+}
+
+.tab-item:not(.active) {
+  @apply bg-gray-100 text-gray-600;
+  @apply hover:bg-gray-200;
+}
+
+.tab-item.active {
+  @apply bg-white text-gray-900;
+  @apply border-t-2 border-t-blue-500;
+  margin-top: -2px;
+}
+
+/* =============================================
+   КОРЗИНА (DRAWER)
+   ============================================= */
 
 .cart-overlay {
-  @apply fixed inset-0 bg-black bg-opacity-50 z-40;
+  @apply fixed inset-0 bg-black/50 z-40;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.cart-drawer-container {
+  @apply fixed inset-y-0 right-0 z-50;
+  @apply flex flex-col bg-white shadow-2xl;
+  width: 100%;
+  max-width: 400px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
 .cart-header {
-  @apply flex items-center justify-between p-4 border-b border-gray-200;
+  @apply flex items-center justify-between px-4 py-3 border-b border-gray-200;
+  flex-shrink: 0;
 }
 
-.cart-content {
-  @apply flex-1 overflow-auto p-4;
+.cart-content-scroll {
+  @apply flex-1 overflow-y-auto p-4;
+  -webkit-overflow-scrolling: touch;
 }
 
 .cart-footer {
   @apply p-4 border-t border-gray-200 bg-gray-50;
+  flex-shrink: 0;
 }
 
+/* Карточка товара в корзине */
 .cart-item {
-  @apply flex flex-col p-3 mb-2 bg-gray-50 rounded-lg;
+  @apply p-3 bg-gray-50 rounded-lg;
 }
 
 .cart-item-name {
-  @apply font-medium text-sm truncate;
+  @apply font-medium text-sm text-gray-800 truncate;
 }
 
 .cart-item-details {
@@ -185,36 +367,300 @@ body {
 }
 
 .cart-total {
-  @apply text-xl font-bold;
+  @apply text-xl font-bold text-gray-900 tabular-nums;
 }
 
-/* Кнопки */
+/* =============================================
+   КНОПКИ
+   ============================================= */
+
 .btn {
-  @apply px-4 py-2 font-medium rounded-lg transition-colors;
+  @apply px-4 py-2.5 font-medium rounded-lg text-sm;
+  @apply transition-colors duration-150;
+  @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
 }
 
 .btn-primary {
-  @apply bg-blue-600 text-white hover:bg-blue-700;
+  @apply bg-blue-600 text-white;
+  @apply hover:bg-blue-700 active:bg-blue-800;
+  @apply focus:ring-blue-500;
 }
 
 .btn-secondary {
-  @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+  @apply bg-gray-200 text-gray-700;
+  @apply hover:bg-gray-300 active:bg-gray-400;
+  @apply focus:ring-gray-500;
 }
 
 .btn-danger {
-  @apply bg-red-600 text-white hover:bg-red-700;
+  @apply bg-red-600 text-white;
+  @apply hover:bg-red-700 active:bg-red-800;
+  @apply focus:ring-red-500;
 }
 
-/* Загрузка */
-.loading-spinner {
-  @apply animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full;
+.btn-export {
+  @apply bg-emerald-600 text-white;
+  @apply hover:bg-emerald-700 active:bg-emerald-800;
+  @apply focus:ring-emerald-500;
 }
 
-.loading-container {
-  @apply flex items-center justify-center py-12;
-}
+/* =============================================
+   УТИЛИТЫ
+   ============================================= */
 
-/* Форматирование чисел */
 .price-format {
   font-variant-numeric: tabular-nums;
+}
+
+/* =============================================
+   АДАПТИВНОСТЬ - ПЛАНШЕТ (768px - 1024px)
+   ============================================= */
+
+@media (max-width: 1024px) {
+  .header-title {
+    @apply text-xs;
+  }
+  
+  .header-count {
+    @apply hidden;
+  }
+  
+  .cart-button-main {
+    @apply px-3 py-1.5 text-xs;
+  }
+  
+  .col-manufacturer { width: 100px; }
+  .col-article { width: 90px; }
+  .col-price { width: 80px; }
+  .col-lead-time { width: 80px; }
+  .col-quantity { width: 70px; }
+  
+  .cell-name {
+    max-width: 200px;
+  }
+  
+  .tab-item {
+    @apply px-3 py-2 text-xs;
+  }
+  
+  .cart-drawer-container {
+    max-width: 350px;
+  }
+}
+
+/* =============================================
+   АДАПТИВНОСТЬ - МОБИЛЬНЫЙ (<768px)
+   ============================================= */
+
+@media (max-width: 768px) {
+  .header-bar {
+    @apply px-2 py-1.5;
+  }
+  
+  .header-left {
+    @apply gap-2;
+  }
+  
+  .header-title {
+    @apply text-xs;
+  }
+  
+  .header-count {
+    @apply hidden;
+  }
+  
+  .cart-button-main {
+    @apply px-2 py-1.5 text-xs gap-1;
+  }
+  
+  .cart-count-badge {
+    @apply -top-1 -right-1 min-w-[16px] h-4 text-[10px];
+  }
+  
+  .search-bar {
+    @apply text-sm;
+  }
+  
+  .search-icon {
+    @apply px-2;
+  }
+  
+  .search-input-field {
+    @apply px-2 py-1.5 text-sm;
+  }
+  
+  /* Таблица на мобильном */
+  .data-table {
+    @apply text-xs;
+    min-width: 600px;
+  }
+  
+  .data-table th,
+  .data-table td {
+    @apply px-2 py-1.5;
+  }
+  
+  .col-manufacturer { width: 80px; }
+  .col-article { width: 70px; }
+  .col-name { min-width: 150px; }
+  .col-price { width: 70px; }
+  .col-lead-time { width: 70px; }
+  .col-quantity { width: 60px; }
+  
+  .cell-name {
+    max-width: 150px;
+    @apply text-xs;
+  }
+  
+  .quantity-input-field {
+    @apply px-1 py-0.5 text-xs;
+  }
+  
+  /* Группы */
+  .group-header-content {
+    @apply px-2 py-1.5;
+  }
+  
+  .group-name {
+    @apply text-sm;
+  }
+  
+  /* Вкладки */
+  .tabs-bar {
+    @apply py-0;
+  }
+  
+  .tab-item {
+    @apply px-2.5 py-2 text-xs;
+  }
+  
+  /* Корзина на полный экран */
+  .cart-drawer-container {
+    max-width: 100%;
+  }
+  
+  .cart-header {
+    @apply px-3 py-2.5;
+  }
+  
+  .cart-content-scroll {
+    @apply p-3;
+  }
+  
+  .cart-footer {
+    @apply p-3;
+  }
+  
+  .cart-item {
+    @apply p-2.5;
+  }
+  
+  .cart-item-name {
+    @apply text-xs;
+  }
+  
+  .cart-item-details {
+    @apply text-xs;
+  }
+  
+  .cart-total {
+    @apply text-lg;
+  }
+  
+  .btn {
+    @apply px-3 py-2 text-xs;
+  }
+  
+  .collapse-controls {
+    @apply px-2 py-1.5;
+  }
+  
+  .collapse-btn {
+    @apply px-2 py-0.5 text-[10px];
+  }
+}
+
+/* =============================================
+   АДАПТИВНОСТЬ - МАЛЕНЬКИЙ МОБИЛЬНЫЙ (<480px)
+   ============================================= */
+
+@media (max-width: 480px) {
+  .header-title {
+    font-size: 11px;
+  }
+  
+  .cart-button-main span:first-child {
+    @apply hidden;
+  }
+  
+  .data-table {
+    min-width: 500px;
+  }
+  
+  .col-manufacturer { width: 70px; }
+  .col-article { width: 60px; }
+  .col-price { width: 60px; }
+  .col-lead-time { width: 60px; }
+  .col-quantity { width: 50px; }
+  
+  .tab-item {
+    @apply px-2 py-1.5;
+    font-size: 10px;
+  }
+}
+
+/* =============================================
+   ПЕЧАТЬ
+   ============================================= */
+
+@media print {
+  .header-bar,
+  .search-bar,
+  .tabs-bar,
+  .cart-button-main,
+  .collapse-controls,
+  .cell-quantity,
+  .col-quantity {
+    display: none !important;
+  }
+  
+  .main-content {
+    overflow: visible;
+  }
+  
+  .table-wrapper {
+    overflow: visible;
+  }
+  
+  .data-table {
+    min-width: auto;
+  }
+}
+
+/* =============================================
+   ТЕМНАЯ ТЕМА (опционально)
+   ============================================= */
+
+@media (prefers-color-scheme: dark) {
+  /* Можно добавить поддержку темной темы */
+}
+
+/* =============================================
+   АНИМАЦИИ И ПЕРЕХОДЫ
+   ============================================= */
+
+/* Плавный скролл */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Отключение анимаций для пользователей с ограничениями */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
