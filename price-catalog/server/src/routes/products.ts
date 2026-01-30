@@ -5,28 +5,58 @@ const router = Router()
 
 /**
  * GET /api/products
- * Получить все товары или фильтрованные по производителю
+ * Получить товары с пагинацией
+ * Query params:
+ * - manufacturer: string - фильтр по производителю
+ * - search: string - поиск по артикулу/наименованию
+ * - limit: number - количество записей (по умолчанию 500, макс 2000)
+ * - offset: number - смещение для пагинации
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { manufacturer, search } = req.query
+    const { manufacturer, search, limit, offset } = req.query
 
-    let products
+    const paginationParams = {
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      offset: offset ? parseInt(offset as string, 10) : undefined
+    }
 
-    if (search && typeof search === 'string') {
-      products = await productsService.search(search)
+    let result
+
+    if (search && typeof search === 'string' && search.trim()) {
+      result = await productsService.search(search.trim(), paginationParams)
     } else if (manufacturer && typeof manufacturer === 'string') {
-      products = await productsService.getByManufacturer(manufacturer)
+      result = await productsService.getByManufacturer(manufacturer, paginationParams)
     } else {
-      products = await productsService.getAll()
+      result = await productsService.getAll(paginationParams)
     }
 
     res.json({
-      products,
-      total: products.length
+      products: result.items,
+      total: result.total,
+      hasMore: result.hasMore,
+      offset: paginationParams.offset || 0,
+      limit: paginationParams.limit || 500
     })
   } catch (error) {
     console.error('Ошибка получения товаров:', error)
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' })
+  }
+})
+
+/**
+ * GET /api/products/count
+ * Получить количество товаров
+ */
+router.get('/count', async (req: Request, res: Response) => {
+  try {
+    const { manufacturer } = req.query
+    const count = await productsService.getCount(
+      manufacturer && typeof manufacturer === 'string' ? manufacturer : undefined
+    )
+    res.json({ count })
+  } catch (error) {
+    console.error('Ошибка получения количества:', error)
     res.status(500).json({ error: 'Внутренняя ошибка сервера' })
   }
 })
@@ -54,7 +84,7 @@ router.get('/:article', async (req: Request, res: Response) => {
 
 /**
  * GET /api/manufacturers
- * Получить список производителей
+ * Получить список производителей с количеством товаров
  */
 router.get('/meta/manufacturers', async (_req: Request, res: Response) => {
   try {

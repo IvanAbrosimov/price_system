@@ -1,63 +1,48 @@
 /**
  * Хук для загрузки и управления списком товаров
+ * С поддержкой пагинации, infinite scroll и кэширования
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { Product, ProductsResponse, MANUFACTURER_GROUPS } from '../types'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Product, MANUFACTURER_GROUPS } from '../types'
 
-// API URL - берём из переменных окружения или используем /api для локальной разработки
+// API URL
 const API_BASE = import.meta.env.VITE_API_URL 
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api'
 
+// Константы
+const PAGE_SIZE = 500
+const DEBOUNCE_DELAY = 300
+
 /**
- * Проверяет, принадлежит ли товар к группе производителя
- * @param productManufacturer - название производителя товара
- * @param groupName - название группы (вкладки)
+ * Debounce функция
  */
-function belongsToManufacturerGroup(productManufacturer: string, groupName: string): boolean {
-  const lines = MANUFACTURER_GROUPS[groupName]
-  if (!lines) return false
-  
-  const productLower = productManufacturer.toLowerCase()
-  
-  // Проверяем совпадение с любой линейкой группы
-  for (const line of lines) {
-    const lineLower = line.toLowerCase()
-    if (productLower.includes(lineLower) || lineLower.includes(productLower)) {
-      return true
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
     }
-  }
-  
-  return false
+  }, [value, delay])
+
+  return debouncedValue
 }
 
 /**
- * Фильтрация товаров на клиенте (для работы с API данными)
+ * Интерфейс ответа API
  */
-function filterProducts(
-  products: Product[], 
-  manufacturer?: string, 
-  search?: string
-): Product[] {
-  let filtered = [...products]
-  
-  // Фильтрация по производителю (группе)
-  if (manufacturer && manufacturer !== 'Все') {
-    filtered = filtered.filter(p => belongsToManufacturerGroup(p.manufacturer, manufacturer))
-  }
-  
-  // Фильтрация по поисковому запросу (артикул, наименование, производитель)
-  if (search) {
-    const searchLower = search.toLowerCase().trim()
-    filtered = filtered.filter(p => 
-      p.article.toLowerCase().includes(searchLower) ||
-      p.name.toLowerCase().includes(searchLower) ||
-      p.manufacturer.toLowerCase().includes(searchLower)
-    )
-  }
-  
-  return filtered
+interface ProductsApiResponse {
+  products: Product[]
+  total: number
+  hasMore: boolean
+  offset: number
+  limit: number
 }
 
 interface UseProductsOptions {
@@ -68,85 +53,222 @@ interface UseProductsOptions {
 interface UseProductsResult {
   products: Product[]
   loading: boolean
+  loadingMore: boolean
   error: string | null
   total: number
+  hasMore: boolean
+  loadMore: () => void
   refetch: () => void
 }
 
+/**
+ * Кэш для хранения загруженных данных по производителям
+ */
+const productsCache = new Map<string, {
+  products: Product[]
+  total: number
+  hasMore: boolean
+  timestamp: number
+}>()
+
+const CACHE_TTL = 5 * 60 * 1000 // 5 минут
+
+function getCacheKey(manufacturer?: string, search?: string): string {
+  return `${manufacturer || 'all'}:${search || ''}`
+}
+
+function getFromCache(key: string) {
+  const cached = productsCache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached
+  }
+  return null
+}
+
+function setToCache(key: string, data: { products: Product[]; total: number; hasMore: boolean }) {
+  productsCache.set(key, { ...data, timestamp: Date.now() })
+}
+
 export function useProducts(options: UseProductsOptions = {}): UseProductsResult {
-  const [allProducts, setAllProducts] = useState<Product[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [offset, setOffset] = useState(0)
+  
+  const abortControllerRef = useRef<AbortController | null>(null)
+  
+  // Debounced search для уменьшения запросов
+  const debouncedSearch = useDebounce(options.search, DEBOUNCE_DELAY)
+  
+  // Ключ кэша
+  const cacheKey = useMemo(() => 
+    getCacheKey(options.manufacturer, debouncedSearch),
+    [options.manufacturer, debouncedSearch]
+  )
 
-  // Загрузка всех товаров с сервера
-  const fetchProducts = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  // Загрузка товаров
+  const fetchProducts = useCallback(async (isLoadMore = false) => {
+    // Отменяем предыдущий запрос
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
+    const currentOffset = isLoadMore ? offset : 0
+    
+    // Проверяем кэш для начальной загрузки
+    if (!isLoadMore && !debouncedSearch) {
+      const cached = getFromCache(cacheKey)
+      if (cached) {
+        setProducts(cached.products)
+        setTotal(cached.total)
+        setHasMore(cached.hasMore)
+        setOffset(cached.products.length)
+        setLoading(false)
+        return
+      }
+    }
+
+    if (isLoadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+      setError(null)
+    }
 
     try {
-      // Загружаем все товары без фильтров (фильтрацию делаем на клиенте)
-      const url = `${API_BASE}/products`
-      const response = await fetch(url)
+      // Формируем URL с параметрами
+      const params = new URLSearchParams()
+      params.set('limit', PAGE_SIZE.toString())
+      params.set('offset', currentOffset.toString())
+      
+      if (options.manufacturer && options.manufacturer !== 'Все') {
+        params.set('manufacturer', options.manufacturer)
+      }
+      
+      if (debouncedSearch) {
+        params.set('search', debouncedSearch)
+      }
+
+      const url = `${API_BASE}/products?${params.toString()}`
+      const response = await fetch(url, {
+        signal: abortControllerRef.current.signal
+      })
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      const data: ProductsResponse = await response.json()
-      setAllProducts(data.products)
+      const data: ProductsApiResponse = await response.json()
       
-      // Применяем фильтры на клиенте
-      const filtered = filterProducts(data.products, options.manufacturer, options.search)
-      setProducts(filtered)
-      setTotal(filtered.length)
+      if (isLoadMore) {
+        const newProducts = [...products, ...data.products]
+        setProducts(newProducts)
+        setOffset(newProducts.length)
+        
+        // Обновляем кэш
+        if (!debouncedSearch) {
+          setToCache(cacheKey, {
+            products: newProducts,
+            total: data.total,
+            hasMore: data.hasMore
+          })
+        }
+      } else {
+        setProducts(data.products)
+        setOffset(data.products.length)
+        
+        // Сохраняем в кэш
+        if (!debouncedSearch) {
+          setToCache(cacheKey, {
+            products: data.products,
+            total: data.total,
+            hasMore: data.hasMore
+          })
+        }
+      }
+      
+      setTotal(data.total)
+      setHasMore(data.hasMore)
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return // Игнорируем отменённые запросы
+      }
+      
       const message = err instanceof Error ? err.message : 'Неизвестная ошибка'
       console.error('Ошибка загрузки товаров:', message)
       setError(message)
-      setProducts([])
-      setTotal(0)
+      
+      if (!isLoadMore) {
+        setProducts([])
+        setTotal(0)
+        setHasMore(false)
+      }
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
-  }, [])
+  }, [options.manufacturer, debouncedSearch, offset, products, cacheKey])
 
-  // Первоначальная загрузка
+  // Загрузка при изменении фильтров
   useEffect(() => {
-    fetchProducts()
-  }, [fetchProducts])
-
-  // Применение фильтров при изменении параметров (без повторной загрузки)
-  useEffect(() => {
-    if (allProducts.length > 0) {
-      const filtered = filterProducts(allProducts, options.manufacturer, options.search)
-      setProducts(filtered)
-      setTotal(filtered.length)
+    setOffset(0)
+    setProducts([])
+    fetchProducts(false)
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
     }
-  }, [allProducts, options.manufacturer, options.search])
+  }, [options.manufacturer, debouncedSearch])
+
+  // Загрузка следующей страницы
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      fetchProducts(true)
+    }
+  }, [loadingMore, hasMore, fetchProducts])
+
+  // Принудительное обновление
+  const refetch = useCallback(() => {
+    productsCache.delete(cacheKey)
+    setOffset(0)
+    fetchProducts(false)
+  }, [cacheKey, fetchProducts])
 
   return {
     products,
     loading,
+    loadingMore,
     error,
     total,
-    refetch: fetchProducts
+    hasMore,
+    loadMore,
+    refetch
   }
 }
 
 /**
- * Хук для загрузки списка производителей
+ * Хук для загрузки списка производителей с количеством товаров
  */
+interface ManufacturerInfo {
+  name: string
+  count: number
+}
+
 export function useManufacturers() {
-  const [manufacturers, setManufacturers] = useState<string[]>([])
+  const [manufacturers, setManufacturers] = useState<ManufacturerInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchManufacturers = async () => {
       try {
-        const response = await fetch(`${API_BASE}/manufacturers`)
+        const response = await fetch(`${API_BASE}/products/meta/manufacturers`)
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
@@ -158,8 +280,10 @@ export function useManufacturers() {
         const message = err instanceof Error ? err.message : 'Ошибка'
         console.error('Ошибка загрузки производителей:', message)
         setError(message)
-        // Используем список из MANUFACTURER_GROUPS как fallback
-        setManufacturers(Object.keys(MANUFACTURER_GROUPS))
+        // Используем fallback
+        setManufacturers(
+          Object.keys(MANUFACTURER_GROUPS).map(name => ({ name, count: 0 }))
+        )
       } finally {
         setLoading(false)
       }
@@ -185,7 +309,7 @@ export function useStock(article: string) {
     const fetchStock = async () => {
       setLoading(true)
       try {
-        const response = await fetch(`${API_BASE}/stock/${encodeURIComponent(article)}`)
+        const response = await fetch(`${API_BASE}/products/stock/${encodeURIComponent(article)}`)
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)

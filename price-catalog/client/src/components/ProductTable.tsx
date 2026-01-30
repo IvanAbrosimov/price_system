@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useCallback, useRef, memo } from 'react'
+import { FixedSizeList } from 'react-window'
 import { Product } from '../types'
 import { getDynamicLeadTime, getLeadTimeClass, formatPrice } from '../utils/leadTime'
 import QuantityInput from './QuantityInput'
@@ -10,90 +11,26 @@ interface ProductTableProps {
     addItem: (product: Product, quantity: number) => void
     updateQuantity: (article: string, quantity: number, product?: Product) => void
   }
+  hasMore: boolean
+  loadMore: () => void
+  loadingMore: boolean
 }
 
-export default function ProductTable({ products, cart }: ProductTableProps) {
-  // Группировка товаров по производителю
-  const groupedProducts = useMemo(() => {
-    const groups: Record<string, Product[]> = {}
-    
-    products.forEach(product => {
-      const key = product.manufacturer
-      if (!groups[key]) {
-        groups[key] = []
-      }
-      groups[key].push(product)
-    })
-    
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [products])
+// Высота строки
+const ROW_HEIGHT = 56
 
-  if (products.length === 0) {
-    return (
-      <div className="text-center py-12 text-gray-500">
-        <p className="text-lg">Товары не найдены</p>
-        <p className="text-sm mt-2">Попробуйте изменить параметры поиска</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="table-container">
-      <table className="product-table">
-        <thead>
-          <tr>
-            <th style={{ width: '130px' }}>Производитель</th>
-            <th style={{ width: '120px' }}>Артикул</th>
-            <th style={{ minWidth: '300px' }}>Наименование</th>
-            <th style={{ width: '100px' }}>Цена, ₽</th>
-            <th style={{ width: '120px' }}>Срок</th>
-            <th style={{ width: '100px' }}>Кол-во</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groupedProducts.map(([manufacturer, items]) => (
-            <ManufacturerGroup
-              key={manufacturer}
-              manufacturer={manufacturer}
-              products={items}
-              cart={cart}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-interface ManufacturerGroupProps {
-  manufacturer: string
-  products: Product[]
-  cart: ProductTableProps['cart']
-}
-
-function ManufacturerGroup({ manufacturer: _manufacturer, products, cart }: ManufacturerGroupProps) {
-  return (
-    <>
-      {products.map(product => (
-        <ProductRow
-          key={product.id}
-          product={product}
-          cart={cart}
-        />
-      ))}
-    </>
-  )
-}
-
-interface ProductRowProps {
+// Мемоизированная строка товара
+const ProductRow = memo(({ 
+  product, 
+  cart, 
+  style 
+}: { 
   product: Product
   cart: ProductTableProps['cart']
-}
-
-function ProductRow({ product, cart }: ProductRowProps) {
+  style: React.CSSProperties
+}) => {
   const quantity = cart.getQuantity(product.article)
   
-  // Рассчитываем динамический срок на основе количества
   const leadTime = getDynamicLeadTime(
     product.astanaQty || 0,
     product.almatyQty || 0,
@@ -109,19 +46,117 @@ function ProductRow({ product, cart }: ProductRowProps) {
   }
 
   return (
-    <tr className={quantity > 0 ? 'has-quantity' : ''}>
-      <td className="text-center text-sm">{product.manufacturer}</td>
-      <td className="cell-article">{product.article}</td>
-      <td className="cell-name" title={product.name}>{product.name}</td>
-      <td className="cell-price price-format">{formatPrice(product.priceRub)} ₽</td>
-      <td className={getLeadTimeClass(leadTime.type)}>{leadTime.text}</td>
-      <td>
+    <div 
+      style={style} 
+      className={`product-row ${quantity > 0 ? 'has-quantity' : ''}`}
+    >
+      <div className="product-cell cell-manufacturer">{product.manufacturer}</div>
+      <div className="product-cell cell-article">{product.article}</div>
+      <div className="product-cell cell-name" title={product.name}>{product.name}</div>
+      <div className="product-cell cell-price price-format">{formatPrice(product.priceRub)} ₽</div>
+      <div className={`product-cell cell-lead-time ${getLeadTimeClass(leadTime.type)}`}>
+        {leadTime.text}
+      </div>
+      <div className="product-cell cell-quantity">
         <QuantityInput
           value={quantity}
           onChange={handleQuantityChange}
           article={product.article}
         />
-      </td>
-    </tr>
+      </div>
+    </div>
+  )
+})
+
+ProductRow.displayName = 'ProductRow'
+
+export default function ProductTable({ 
+  products, 
+  cart, 
+  hasMore, 
+  loadMore, 
+  loadingMore 
+}: ProductTableProps) {
+  const listRef = useRef<FixedSizeList>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Обработчик скролла для infinite scroll
+  const handleScroll = useCallback(({ scrollOffset, scrollDirection }: { scrollOffset: number; scrollDirection: 'forward' | 'backward' }) => {
+    if (scrollDirection !== 'forward' || loadingMore || !hasMore) return
+    
+    const listHeight = products.length * ROW_HEIGHT
+    const viewportHeight = containerRef.current?.clientHeight || 600
+    const threshold = listHeight - viewportHeight - 500 // Загружаем за 500px до конца
+    
+    if (scrollOffset > threshold) {
+      loadMore()
+    }
+  }, [loadingMore, hasMore, loadMore, products.length])
+
+  // Рендер строки
+  const Row = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const product = products[index]
+    if (!product) return null
+    
+    return (
+      <ProductRow
+        key={product.id}
+        product={product}
+        cart={cart}
+        style={style}
+      />
+    )
+  }, [products, cart])
+
+  if (products.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        <p className="text-lg">Товары не найдены</p>
+        <p className="text-sm mt-2">Попробуйте изменить параметры поиска</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="product-table-container" ref={containerRef}>
+      {/* Заголовок таблицы */}
+      <div className="product-table-header">
+        <div className="product-cell cell-manufacturer">Производитель</div>
+        <div className="product-cell cell-article">Артикул</div>
+        <div className="product-cell cell-name">Наименование</div>
+        <div className="product-cell cell-price">Цена, ₽</div>
+        <div className="product-cell cell-lead-time">Срок</div>
+        <div className="product-cell cell-quantity">Кол-во</div>
+      </div>
+      
+      {/* Виртуализированный список */}
+      <FixedSizeList
+        ref={listRef}
+        height={Math.min(products.length * ROW_HEIGHT, window.innerHeight - 280)}
+        itemCount={products.length}
+        itemSize={ROW_HEIGHT}
+        width="100%"
+        onScroll={handleScroll}
+        overscanCount={10}
+        className="product-list"
+      >
+        {Row}
+      </FixedSizeList>
+      
+      {/* Индикатор загрузки */}
+      {loadingMore && (
+        <div className="loading-more">
+          <div className="loading-spinner"></div>
+          <span>Загрузка...</span>
+        </div>
+      )}
+      
+      {/* Информация о количестве */}
+      {hasMore && !loadingMore && (
+        <div className="load-more-hint">
+          Прокрутите вниз для загрузки ещё товаров
+        </div>
+      )}
+    </div>
   )
 }

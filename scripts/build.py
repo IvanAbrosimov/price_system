@@ -423,6 +423,21 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
             )
         """)
         
+        # Создаем индексы для быстрого поиска
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_products_manufacturer 
+            ON products(manufacturer)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_products_article 
+            ON products(article)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_products_manufacturer_article 
+            ON products(manufacturer, article)
+        """)
+        print("  📊 Индексы созданы/проверены")
+        
         # Очищаем старые данные
         cur.execute("TRUNCATE TABLE products RESTART IDENTITY")
         print("  🗑️ Таблица products очищена")
