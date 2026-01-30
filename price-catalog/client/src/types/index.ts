@@ -53,16 +53,17 @@ export interface CartState {
 }
 
 // Группы производителей для вкладок
-// Каждая группа содержит название производителя + его линейки для фильтрации
+// Каждая группа содержит название производителя + его варианты написания для фильтрации
 export const MANUFACTURER_GROUPS: Record<string, string[]> = {
-  'Air roxy': ['Air roxy', 'air roxy'],
-  'Chint': ['Chint', 'chint', 'Щиты Chint'],
+  'AirRoxy': ['AirRoxy', 'Air Roxy', 'air roxy', 'airroxy'],
+  'Bticino': ['Bticino', 'bticino', 'BTICINO'],
+  'CHINT': ['CHINT', 'Chint', 'chint'],
   'DKC': ['DKC', 'dkc'],
-  'Jung': ['Jung', 'jung', 'ls990', 'LS990', 'LS 990', 'eco profi', 'Eco Profi'],
-  'Legrand': ['Legrand', 'legrand', 'bticino', 'Bticino', 'valena', 'Valena', 'suno', 'Suno', 'niloe step', 'Niloe Step', 'Niloe(Этика)', 'asfora', 'Asfora', 'unica', 'Unica'],
-  'Merten': ['Merten', 'merten'],
-  'Practibox S': ['Practibox S', 'Practibox', 'practibox', 'Щиты Practibox S'],
-  'Schneider Electric': ['Schneider Electric', 'Schneider', 'schneider', 'Easy9', 'easy9', 'Resi9', 'resi9', 'Щиты SE', 'Rx3', 'rx3'],
+  'IEK': ['IEK', 'iek', 'Iek'],
+  'Jung': ['Jung', 'jung', 'JUNG'],
+  'Legrand': ['Legrand', 'legrand', 'LEGRAND'],
+  'OBO Bettermann': ['OBO Bettermann', 'OBO', 'obo', 'Obo Bettermann'],
+  'Schneider Electric': ['Schneider Electric', 'Schneider', 'schneider', 'SCHNEIDER ELECTRIC'],
   'Wago': ['Wago', 'wago', 'WAGO']
 }
 

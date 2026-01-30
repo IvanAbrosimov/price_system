@@ -1,9 +1,10 @@
 """
 Price System - Автоматизированная система генерации прайс-листов
-Версия: 3.0 (PostgreSQL only)
+Версия: 4.0 (PostgreSQL only)
 
 Функционал:
-- Парсинг прайсов от поставщиков EuroElectric и Axima
+- Парсинг прайсов от поставщика EuroElectric (из единого файла Euroelectric.xlsx)
+- Парсинг прайса Axima (Wago)
 - Генерация внутреннего прайса (INTERNAL.xlsx)
 - Генерация клиентского прайса (PUBLIC.xlsx)
 - Загрузка в PostgreSQL для веб-приложения
@@ -20,6 +21,19 @@ from typing import Dict, List, Tuple
 
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
+
+# Нужные бренды из Euroelectric.xlsx
+ALLOWED_BRANDS = [
+    'AirRoxy',
+    'Bticino',
+    'CHINT',
+    'DKC',
+    'IEK',
+    'Jung',
+    'Legrand',
+    'OBO Bettermann',
+    'Schneider Electric'
+]
 
 # ============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -46,12 +60,12 @@ def safe_float(x):
 # ЗАГРУЗКА НАСТРОЕК
 # ============================================================================
 
-def load_settings() -> Tuple[pd.DataFrame, Dict, Dict]:
+def load_settings() -> Tuple[Dict, Dict]:
     """
-    Загружает все настройки из settings.xlsx
+    Загружает настройки из settings.xlsx
     
     Returns:
-        (config_df, settings_dict, margins_dict)
+        (settings_dict, margins_dict)
     """
     settings_file = os.path.join(INPUT_DIR, "settings.xlsx")
     
@@ -60,9 +74,6 @@ def load_settings() -> Tuple[pd.DataFrame, Dict, Dict]:
             f"❌ Файл {settings_file} не найден!\n"
             "Создайте файл с настройками в папке input/"
         )
-    
-    # Загружаем конфигурацию листов
-    config_df = pd.read_excel(settings_file, sheet_name='Config')
     
     # Загружаем глобальные настройки
     settings_raw = pd.read_excel(settings_file, sheet_name='Settings')
@@ -92,7 +103,7 @@ def load_settings() -> Tuple[pd.DataFrame, Dict, Dict]:
         if not pd.isna(row['article']) and not pd.isna(row['margin']):
             margins_dict['by_article'][str(row['article'])] = float(row['margin'])
     
-    return config_df, settings_dict, margins_dict
+    return settings_dict, margins_dict
 
 
 def validate_settings(settings_dict: Dict):
@@ -126,23 +137,28 @@ def load_stock() -> Tuple[Dict, Dict]:
     almaty_stock = {}
     astana_stock = {}
     
-    # Загружаем Алматы
+    # Загружаем остатки Алматы (ostatki_Euroelectric.xlsx)
+    # Структура: артикул в столбце 0, количество в столбце 10, данные с строки 12
     if os.path.exists(almaty_file):
         df = pd.read_excel(almaty_file, header=None)
         for i in range(12, len(df)):
             row = df.iloc[i]
-            if len(row) > 7:
+            if len(row) > 10:
                 article = clean(row.iloc[0])
                 if isinstance(article, str):
                     article = article.lower()
-                qty = safe_float(row.iloc[7])
+                qty = safe_float(row.iloc[10])
                 if article and qty is not None and qty > 0:
                     almaty_stock[article] = almaty_stock.get(article, 0) + qty
+        print(f"  📦 Алматы: загружено {len(almaty_stock)} позиций")
+    else:
+        print(f"  ⚠️ Файл {almaty_file} не найден")
     
-    # Загружаем Астану
+    # Загружаем доступность Астаны (dostupnost_Euroelectric.xlsx)
+    # Структура: артикул в столбце 0, количество в столбце 7, данные с строки 8
     if os.path.exists(astana_file):
         df = pd.read_excel(astana_file, header=None)
-        for i in range(11, len(df)):
+        for i in range(8, len(df)):
             row = df.iloc[i]
             if len(row) > 7:
                 article = clean(row.iloc[0])
@@ -151,8 +167,10 @@ def load_stock() -> Tuple[Dict, Dict]:
                 qty = safe_float(row.iloc[7])
                 if article and qty is not None and qty > 0:
                     astana_stock[article] = astana_stock.get(article, 0) + qty
+        print(f"  📦 Астана: загружено {len(astana_stock)} позиций")
+    else:
+        print(f"  ⚠️ Файл {astana_file} не найден")
     
-    print(f"📦 Загружено остатков: Алматы={len(almaty_stock)}, Астана={len(astana_stock)}")
     return almaty_stock, astana_stock
 
 
@@ -161,8 +179,8 @@ def determine_lead_time(article: str, almaty: Dict, astana: Dict) -> str:
     Определяет срок доставки по наличию
     
     ЛОГИКА:
-    1. Если есть в Астане → "6-10 дней"
-    2. Если есть в Алматы → "10-14 дней"
+    1. Если есть в Астане (dostupnost) → "6-10 дней"
+    2. Если есть в Алматы (ostatki) → "10-14 дней"
     3. Нигде нет → "по запросу"
     """
     astana_qty = astana.get(article, 0)
@@ -171,7 +189,7 @@ def determine_lead_time(article: str, almaty: Dict, astana: Dict) -> str:
     if astana_qty > 0:
         return "6-10 дней"
     
-    if (astana_qty + almaty_qty) > 0:
+    if almaty_qty > 0:
         return "10-14 дней"
     
     return "по запросу"
@@ -181,58 +199,71 @@ def determine_lead_time(article: str, almaty: Dict, astana: Dict) -> str:
 # ПАРСИНГ EUROELECTRIC
 # ============================================================================
 
-def parse_euroelectric(config_df: pd.DataFrame, almaty: Dict, astana: Dict) -> List[Dict]:
-    """Парсит все листы EuroElectric согласно конфигурации"""
-    main_file = os.path.join(INPUT_DIR, "all_Euroelectric.xlsx")
+def parse_euroelectric(almaty: Dict, astana: Dict) -> List[Dict]:
+    """
+    Парсит единый файл Euroelectric.xlsx
+    
+    Структура файла:
+    - Столбец 0 (индекс 0): Артикул
+    - Столбец 1 (индекс 1): Наименование
+    - Столбец 3 (индекс 3): Цена за ед. в тенге с НДС (это РРЦ)
+    - Столбец 4 (индекс 4): Бренд
+    
+    Цена: РРЦ * 0.6 (минус 40%)
+    """
+    main_file = os.path.join(INPUT_DIR, "Euroelectric.xlsx")
     
     if not os.path.exists(main_file):
         print(f"⚠️ Файл {main_file} не найден, пропускаем EuroElectric")
         return []
     
-    xls = pd.ExcelFile(main_file)
+    df = pd.read_excel(main_file)
     all_products = []
+    brand_counts = {}
     
-    for _, cfg in config_df.iterrows():
-        sheet_name = cfg['sheet_name']
-        manufacturer = cfg['manufacturer']
-        start_row = int(cfg['start_row'])
-        col_article = int(cfg['col_article'])
-        col_name = int(cfg['col_name'])
-        col_price = int(cfg['col_price'])
+    for i, row in df.iterrows():
+        # Получаем бренд (столбец 4, индекс 4)
+        brand = clean(row.iloc[4]) if len(row) > 4 else None
         
-        if sheet_name not in xls.sheet_names:
-            print(f"  ⚠️ Лист '{sheet_name}' не найден, пропускаем")
+        # Пропускаем если бренд не в списке нужных
+        if not brand or brand not in ALLOWED_BRANDS:
             continue
         
-        df = pd.read_excel(main_file, sheet_name=sheet_name, header=None)
-        parsed_count = 0
+        # Получаем данные
+        article_raw = clean(row.iloc[0]) if len(row) > 0 else None  # Столбец 0
+        name = clean(row.iloc[1]) if len(row) > 1 else None         # Столбец 1
+        rrc = safe_float(row.iloc[3]) if len(row) > 3 else None     # Столбец 3 (Цена за ед.)
         
-        for i in range(start_row - 1, len(df)):
-            row = df.iloc[i]
-            
-            article_raw = clean(row.iloc[col_article - 1]) if col_article <= len(row) else None
-            name = clean(row.iloc[col_name - 1]) if col_name <= len(row) else None
-            rrc = safe_float(row.iloc[col_price - 1]) if col_price <= len(row) else None
-            
-            if not article_raw or not name or rrc is None or rrc <= 0:
-                continue
-            
-            article = article_raw.lower() if isinstance(article_raw, str) else str(article_raw)
-            dealer_price_kzt = round(rrc * 0.6, 2)
-            lead_time = determine_lead_time(article, almaty, astana)
-            
-            all_products.append({
-                'manufacturer': manufacturer,
-                'article': article,
-                'name': name,
-                'dealer_price_kzt': dealer_price_kzt,
-                'srok': lead_time,
-                'catalog_url': '',
-                'image_url': ''
-            })
-            parsed_count += 1
+        # Пропускаем невалидные записи
+        if not article_raw or not name or rrc is None or rrc <= 0:
+            continue
         
-        print(f"  ✅ {sheet_name}: {parsed_count} товаров")
+        # Приводим артикул к нижнему регистру
+        article = article_raw.lower() if isinstance(article_raw, str) else str(article_raw).lower()
+        
+        # Цена: РРЦ минус 40%
+        dealer_price_kzt = round(rrc * 0.6, 2)
+        
+        # Определяем срок доставки
+        lead_time = determine_lead_time(article, almaty, astana)
+        
+        all_products.append({
+            'manufacturer': brand,
+            'article': article,
+            'name': name,
+            'dealer_price_kzt': dealer_price_kzt,
+            'srok': lead_time,
+            'catalog_url': '',
+            'image_url': ''
+        })
+        
+        # Считаем по брендам
+        brand_counts[brand] = brand_counts.get(brand, 0) + 1
+    
+    # Выводим статистику по брендам
+    print(f"  📋 Всего товаров EuroElectric: {len(all_products)}")
+    for brand in sorted(brand_counts.keys()):
+        print(f"     • {brand}: {brand_counts[brand]}")
     
     return all_products
 
@@ -460,22 +491,22 @@ def main():
         python3 build.py    # Парсинг файлов и загрузка в PostgreSQL
     """
     print("=" * 70)
-    print("🚀 PRICE SYSTEM - Генерация прайс-листов (v3.0)")
+    print("🚀 PRICE SYSTEM - Генерация прайс-листов (v4.0)")
     print("=" * 70)
     
     try:
         # 1. Загрузка настроек
         print("\n📋 Загрузка настроек...")
-        config_df, settings_dict, margins_dict = load_settings()
+        settings_dict, margins_dict = load_settings()
         validate_settings(settings_dict)
         
         # 2. Загрузка остатков
         print("\n📦 Загрузка остатков...")
         almaty_stock, astana_stock = load_stock()
         
-        # 3. Парсинг EuroElectric
-        print("\n🔍 Парсинг EuroElectric...")
-        euro_products = parse_euroelectric(config_df, almaty_stock, astana_stock)
+        # 3. Парсинг EuroElectric (новый единый файл)
+        print("\n🔍 Парсинг EuroElectric (Euroelectric.xlsx)...")
+        euro_products = parse_euroelectric(almaty_stock, astana_stock)
         
         # 4. Парсинг Axima (Wago)
         print("\n🔍 Парсинг Axima (Wago)...")
