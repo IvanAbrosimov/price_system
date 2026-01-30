@@ -1,17 +1,28 @@
 /**
- * Главный компонент приложения - Оптимизированная версия с виртуализацией
+ * Главный компонент приложения - стиль Google Sheets с группировкой
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useProducts, useManufacturers } from './hooks/useProducts'
 import { useCart } from './hooks/useCart'
-import ProductTable from './components/ProductTable'
+import { getDynamicLeadTime, getLeadTimeClass, formatPrice } from './utils/leadTime'
+import { Product, MANUFACTURER_GROUPS } from './types'
 import CartDrawer from './components/CartDrawer'
+import QuantityInput from './components/QuantityInput'
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('Все')
   const [isCartOpen, setIsCartOpen] = useState(false)
+  
+  // Состояние схлопывания групп производителей
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
+      initial[manufacturer] = true // По умолчанию свёрнуто
+    })
+    return initial
+  })
   
   // Загрузка товаров с пагинацией
   const { 
@@ -31,6 +42,49 @@ export default function App() {
   
   const cartHook = useCart()
   const { items, addItem, updateQuantity, getQuantity, getTotal, getItemsCount, removeItem, clear } = cartHook
+
+  // Группировка товаров по производителю для вкладки "Все"
+  const groupedProducts = useMemo(() => {
+    if (activeTab !== 'Все') return null
+    
+    const groups: Record<string, Product[]> = {}
+    
+    products.forEach(product => {
+      const manufacturerGroup = findManufacturerGroup(product.manufacturer)
+      if (!groups[manufacturerGroup]) {
+        groups[manufacturerGroup] = []
+      }
+      groups[manufacturerGroup].push(product)
+    })
+    
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [products, activeTab])
+
+  // Обработчик изменения количества
+  const handleQuantityChange = (product: Product, newQty: number) => {
+    if (newQty > 0) {
+      addItem(product, newQty)
+    } else {
+      removeItem(product.article)
+    }
+  }
+
+  // Переключение схлопывания группы
+  const toggleGroup = (manufacturer: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [manufacturer]: !prev[manufacturer]
+    }))
+  }
+
+  // Развернуть/свернуть все группы
+  const toggleAllGroups = (collapse: boolean) => {
+    const newState: Record<string, boolean> = {}
+    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
+      newState[manufacturer] = collapse
+    })
+    setCollapsedGroups(newState)
+  }
 
   // Формируем список вкладок
   const tabs = ['Все', ...manufacturers.map(m => m.name)]
@@ -83,22 +137,99 @@ export default function App() {
 
       {/* Основное содержимое */}
       <div className="main-content">
-        {/* Индикатор загрузки */}
-        {loading ? (
-          <div className="loading-container">
-            <div className="loading-spinner"></div>
-            <span>Загрузка товаров...</span>
+        {/* Кнопки развернуть/свернуть все (только на вкладке "Все") */}
+        {activeTab === 'Все' && !loading && products.length > 0 && (
+          <div className="collapse-controls">
+            <button 
+              onClick={() => toggleAllGroups(false)}
+              className="collapse-btn"
+            >
+              ▼ Развернуть все
+            </button>
+            <button 
+              onClick={() => toggleAllGroups(true)}
+              className="collapse-btn"
+            >
+              ▶ Свернуть все
+            </button>
           </div>
-        ) : (
-          /* Виртуализированная таблица */
-          <ProductTable
-            products={products}
-            cart={{ getQuantity, addItem, updateQuantity }}
-            hasMore={hasMore}
-            loadMore={loadMore}
-            loadingMore={loadingMore}
-          />
         )}
+
+        {/* Таблица */}
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th className="col-manufacturer">Производитель</th>
+                <th className="col-article">Артикул</th>
+                <th className="col-name">Наименование</th>
+                <th className="col-price">Цена, ₽</th>
+                <th className="col-lead-time">Срок</th>
+                <th className="col-quantity">Кол-во</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="loading-cell">
+                    <div className="loading-spinner-small"></div>
+                    Загрузка...
+                  </td>
+                </tr>
+              ) : products.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="empty-cell">
+                    Товары не найдены
+                  </td>
+                </tr>
+              ) : activeTab === 'Все' && groupedProducts ? (
+                // Отображение с группировкой по производителям
+                groupedProducts.map(([manufacturer, manufacturerProducts]) => (
+                  <ManufacturerGroupRows
+                    key={manufacturer}
+                    manufacturer={manufacturer}
+                    products={manufacturerProducts}
+                    isCollapsed={collapsedGroups[manufacturer] ?? true}
+                    onToggle={() => toggleGroup(manufacturer)}
+                    getQuantity={getQuantity}
+                    onQuantityChange={handleQuantityChange}
+                  />
+                ))
+              ) : (
+                // Обычное отображение без группировки (на вкладках конкретных производителей)
+                products.map((product, idx) => (
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    isEven={idx % 2 === 0}
+                    quantity={getQuantity(product.article)}
+                    onQuantityChange={handleQuantityChange}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+          
+          {/* Кнопка "Загрузить ещё" */}
+          {hasMore && !loading && (
+            <div className="load-more-container">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="load-more-btn"
+              >
+                {loadingMore ? (
+                  <>
+                    <span className="loading-spinner-small"></span>
+                    Загрузка...
+                  </>
+                ) : (
+                  'Загрузить ещё'
+                )}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Табы листов - внизу как в Google Sheets */}
         <div className="tabs-bar">
@@ -133,5 +264,105 @@ export default function App() {
         }}
       />
     </div>
+  )
+}
+
+/**
+ * Находит группу производителя по имени
+ */
+function findManufacturerGroup(productManufacturer: string): string {
+  const normalizedProduct = productManufacturer.toLowerCase()
+  
+  for (const [group, lines] of Object.entries(MANUFACTURER_GROUPS)) {
+    for (const line of lines) {
+      if (normalizedProduct.includes(line.toLowerCase()) || line.toLowerCase().includes(normalizedProduct)) {
+        return group
+      }
+    }
+    if (normalizedProduct.includes(group.toLowerCase()) || group.toLowerCase().includes(normalizedProduct)) {
+      return group
+    }
+  }
+  
+  return productManufacturer
+}
+
+// Компонент строк группы производителя
+interface ManufacturerGroupRowsProps {
+  manufacturer: string
+  products: Product[]
+  isCollapsed: boolean
+  onToggle: () => void
+  getQuantity: (article: string) => number
+  onQuantityChange: (product: Product, qty: number) => void
+}
+
+function ManufacturerGroupRows({
+  manufacturer,
+  products,
+  isCollapsed,
+  onToggle,
+  getQuantity,
+  onQuantityChange
+}: ManufacturerGroupRowsProps) {
+  return (
+    <>
+      {/* Строка-заголовок группы */}
+      <tr className="group-header-row" onClick={onToggle}>
+        <td colSpan={6}>
+          <div className="group-header-content">
+            <span className={`group-arrow ${isCollapsed ? '' : 'expanded'}`}>
+              ▶
+            </span>
+            <span className="group-name">{manufacturer}</span>
+            <span className="group-count">({products.length} товаров)</span>
+          </div>
+        </td>
+      </tr>
+      
+      {/* Строки товаров (если не свёрнуто) */}
+      {!isCollapsed && products.map((product, idx) => (
+        <ProductRow
+          key={product.id}
+          product={product}
+          isEven={idx % 2 === 0}
+          quantity={getQuantity(product.article)}
+          onQuantityChange={onQuantityChange}
+        />
+      ))}
+    </>
+  )
+}
+
+// Компонент строки товара
+interface ProductRowProps {
+  product: Product
+  isEven: boolean
+  quantity: number
+  onQuantityChange: (product: Product, qty: number) => void
+}
+
+function ProductRow({ product, isEven, quantity, onQuantityChange }: ProductRowProps) {
+  const leadTime = getDynamicLeadTime(
+    product.astanaQty || 0,
+    product.almatyQty || 0,
+    quantity
+  )
+  
+  return (
+    <tr className={`product-row ${isEven ? 'even' : 'odd'} ${quantity > 0 ? 'has-quantity' : ''}`}>
+      <td className="cell-manufacturer">{product.manufacturer}</td>
+      <td className="cell-article">{product.article}</td>
+      <td className="cell-name" title={product.name}>{product.name}</td>
+      <td className="cell-price">{formatPrice(product.priceRub)} ₽</td>
+      <td className={`cell-lead-time ${getLeadTimeClass(leadTime.type)}`}>{leadTime.text}</td>
+      <td className="cell-quantity">
+        <QuantityInput
+          value={quantity}
+          onChange={(newQty) => onQuantityChange(product, newQty)}
+          article={product.article}
+        />
+      </td>
+    </tr>
   )
 }
