@@ -15,8 +15,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('Все')
   const [isCartOpen, setIsCartOpen] = useState(false)
   
-  // Состояние схлопывания групп производителей
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  // Состояние раскрытых групп производителей (true = развёрнуто)
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   
   // Загрузка производителей с количеством товаров
   const { manufacturers, loading: manufacturersLoading } = useManufacturers()
@@ -46,21 +46,21 @@ export default function App() {
     }
   }
 
-  // Переключение схлопывания группы
+  // Переключение раскрытия группы
   const toggleGroup = (manufacturer: string) => {
-    setCollapsedGroups(prev => ({
+    setExpandedGroups(prev => ({
       ...prev,
       [manufacturer]: !prev[manufacturer]
     }))
   }
 
   // Развернуть/свернуть все группы
-  const toggleAllGroups = (collapse: boolean) => {
+  const toggleAllGroups = (expand: boolean) => {
     const newState: Record<string, boolean> = {}
     manufacturers.forEach(m => {
-      newState[m.name] = collapse
+      newState[m.name] = expand
     })
-    setCollapsedGroups(newState)
+    setExpandedGroups(newState)
   }
 
   // Формируем список вкладок
@@ -126,13 +126,13 @@ export default function App() {
         {showAllTab && !loading && manufacturers.length > 0 && (
           <div className="collapse-controls">
             <button 
-              onClick={() => toggleAllGroups(false)}
+              onClick={() => toggleAllGroups(true)}
               className="collapse-btn"
             >
               ▼ Развернуть все
             </button>
             <button 
-              onClick={() => toggleAllGroups(true)}
+              onClick={() => toggleAllGroups(false)}
               className="collapse-btn"
             >
               ▶ Свернуть все
@@ -168,7 +168,7 @@ export default function App() {
                     key={mfr.name}
                     manufacturer={mfr.name}
                     count={mfr.count}
-                    isCollapsed={collapsedGroups[mfr.name] !== false} // по умолчанию свёрнуто
+                    isExpanded={expandedGroups[mfr.name] === true} // по умолчанию свёрнуто
                     onToggle={() => toggleGroup(mfr.name)}
                     getQuantity={getQuantity}
                     onQuantityChange={handleQuantityChange}
@@ -256,7 +256,7 @@ export default function App() {
 interface LazyManufacturerGroupProps {
   manufacturer: string
   count: number
-  isCollapsed: boolean
+  isExpanded: boolean
   onToggle: () => void
   getQuantity: (article: string) => number
   onQuantityChange: (product: Product, qty: number) => void
@@ -265,14 +265,14 @@ interface LazyManufacturerGroupProps {
 function LazyManufacturerGroup({
   manufacturer,
   count,
-  isCollapsed,
+  isExpanded,
   onToggle,
   getQuantity,
   onQuantityChange
 }: LazyManufacturerGroupProps) {
   // Lazy loading - загружаем только когда группа раскрыта
   const { products, loading, loadingMore, hasMore, loadMore, loaded } = 
-    useManufacturerProducts(manufacturer, !isCollapsed)
+    useManufacturerProducts(manufacturer, isExpanded)
 
   return (
     <>
@@ -280,20 +280,20 @@ function LazyManufacturerGroup({
       <tr className="group-header-row" onClick={onToggle}>
         <td colSpan={6}>
           <div className="group-header-content">
-            <span className={`group-arrow ${isCollapsed ? '' : 'expanded'}`}>
+            <span className={`group-arrow ${isExpanded ? 'expanded' : ''}`}>
               ▶
             </span>
             <span className="group-name">{manufacturer}</span>
             <span className="group-count">({count.toLocaleString('ru-RU')} товаров)</span>
-            {!isCollapsed && loading && (
+            {isExpanded && loading && (
               <span className="loading-spinner-small ml-2"></span>
             )}
           </div>
         </td>
       </tr>
       
-      {/* Строки товаров (если не свёрнуто) */}
-      {!isCollapsed && loaded && products.map((product, idx) => (
+      {/* Строки товаров (если развёрнуто) */}
+      {isExpanded && loaded && products.map((product, idx) => (
         <ProductRow
           key={product.id}
           product={product}
@@ -304,7 +304,7 @@ function LazyManufacturerGroup({
       ))}
       
       {/* Кнопка "Загрузить ещё" внутри группы */}
-      {!isCollapsed && loaded && hasMore && (
+      {isExpanded && loaded && hasMore && (
         <tr className="load-more-row">
           <td colSpan={6}>
             <button
