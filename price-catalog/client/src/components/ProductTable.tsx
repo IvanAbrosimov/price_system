@@ -1,8 +1,11 @@
 import { useCallback, useRef, memo } from 'react'
-import { FixedSizeList } from 'react-window'
+import * as ReactWindow from 'react-window'
 import { Product } from '../types'
 import { getDynamicLeadTime, getLeadTimeClass, formatPrice } from '../utils/leadTime'
 import QuantityInput from './QuantityInput'
+
+// Получаем FixedSizeList из react-window
+const FixedSizeList = (ReactWindow as any).FixedSizeList || (ReactWindow as any).default?.FixedSizeList
 
 interface ProductTableProps {
   products: Product[]
@@ -77,7 +80,7 @@ export default function ProductTable({
   loadMore, 
   loadingMore 
 }: ProductTableProps) {
-  const listRef = useRef<FixedSizeList>(null)
+  const listRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Обработчик скролла для infinite scroll
