@@ -1,11 +1,7 @@
-import { useCallback, useRef, memo } from 'react'
-import * as ReactWindow from 'react-window'
+import { memo } from 'react'
 import { Product } from '../types'
 import { getDynamicLeadTime, getLeadTimeClass, formatPrice } from '../utils/leadTime'
 import QuantityInput from './QuantityInput'
-
-// Получаем FixedSizeList из react-window
-const FixedSizeList = (ReactWindow as any).FixedSizeList || (ReactWindow as any).default?.FixedSizeList
 
 interface ProductTableProps {
   products: Product[]
@@ -19,18 +15,13 @@ interface ProductTableProps {
   loadingMore: boolean
 }
 
-// Высота строки
-const ROW_HEIGHT = 56
-
-// Мемоизированная строка товара
+// Мемоизированная строка товара для производительности
 const ProductRow = memo(({ 
   product, 
-  cart, 
-  style 
+  cart
 }: { 
   product: Product
   cart: ProductTableProps['cart']
-  style: React.CSSProperties
 }) => {
   const quantity = cart.getQuantity(product.article)
   
@@ -49,25 +40,22 @@ const ProductRow = memo(({
   }
 
   return (
-    <div 
-      style={style} 
-      className={`product-row ${quantity > 0 ? 'has-quantity' : ''}`}
-    >
-      <div className="product-cell cell-manufacturer">{product.manufacturer}</div>
-      <div className="product-cell cell-article">{product.article}</div>
-      <div className="product-cell cell-name" title={product.name}>{product.name}</div>
-      <div className="product-cell cell-price price-format">{formatPrice(product.priceRub)} ₽</div>
-      <div className={`product-cell cell-lead-time ${getLeadTimeClass(leadTime.type)}`}>
+    <tr className={quantity > 0 ? 'has-quantity' : ''}>
+      <td className="cell-manufacturer">{product.manufacturer}</td>
+      <td className="cell-article">{product.article}</td>
+      <td className="cell-name" title={product.name}>{product.name}</td>
+      <td className="cell-price price-format">{formatPrice(product.priceRub)} ₽</td>
+      <td className={`cell-lead-time ${getLeadTimeClass(leadTime.type)}`}>
         {leadTime.text}
-      </div>
-      <div className="product-cell cell-quantity">
+      </td>
+      <td className="cell-quantity">
         <QuantityInput
           value={quantity}
           onChange={handleQuantityChange}
           article={product.article}
         />
-      </div>
-    </div>
+      </td>
+    </tr>
   )
 })
 
@@ -80,37 +68,6 @@ export default function ProductTable({
   loadMore, 
   loadingMore 
 }: ProductTableProps) {
-  const listRef = useRef<any>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  // Обработчик скролла для infinite scroll
-  const handleScroll = useCallback(({ scrollOffset, scrollDirection }: { scrollOffset: number; scrollDirection: 'forward' | 'backward' }) => {
-    if (scrollDirection !== 'forward' || loadingMore || !hasMore) return
-    
-    const listHeight = products.length * ROW_HEIGHT
-    const viewportHeight = containerRef.current?.clientHeight || 600
-    const threshold = listHeight - viewportHeight - 500 // Загружаем за 500px до конца
-    
-    if (scrollOffset > threshold) {
-      loadMore()
-    }
-  }, [loadingMore, hasMore, loadMore, products.length])
-
-  // Рендер строки
-  const Row = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const product = products[index]
-    if (!product) return null
-    
-    return (
-      <ProductRow
-        key={product.id}
-        product={product}
-        cart={cart}
-        style={style}
-      />
-    )
-  }, [products, cart])
-
   if (products.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -121,43 +78,46 @@ export default function ProductTable({
   }
 
   return (
-    <div className="product-table-container" ref={containerRef}>
-      {/* Заголовок таблицы */}
-      <div className="product-table-header">
-        <div className="product-cell cell-manufacturer">Производитель</div>
-        <div className="product-cell cell-article">Артикул</div>
-        <div className="product-cell cell-name">Наименование</div>
-        <div className="product-cell cell-price">Цена, ₽</div>
-        <div className="product-cell cell-lead-time">Срок</div>
-        <div className="product-cell cell-quantity">Кол-во</div>
-      </div>
+    <div className="table-wrapper">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th className="col-manufacturer">Производитель</th>
+            <th className="col-article">Артикул</th>
+            <th className="col-name">Наименование</th>
+            <th className="col-price">Цена, ₽</th>
+            <th className="col-lead-time">Срок</th>
+            <th className="col-quantity">Кол-во</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((product) => (
+            <ProductRow
+              key={product.id}
+              product={product}
+              cart={cart}
+            />
+          ))}
+        </tbody>
+      </table>
       
-      {/* Виртуализированный список */}
-      <FixedSizeList
-        ref={listRef}
-        height={Math.min(products.length * ROW_HEIGHT, window.innerHeight - 280)}
-        itemCount={products.length}
-        itemSize={ROW_HEIGHT}
-        width="100%"
-        onScroll={handleScroll}
-        overscanCount={10}
-        className="product-list"
-      >
-        {Row}
-      </FixedSizeList>
-      
-      {/* Индикатор загрузки */}
-      {loadingMore && (
-        <div className="loading-more">
-          <div className="loading-spinner"></div>
-          <span>Загрузка...</span>
-        </div>
-      )}
-      
-      {/* Информация о количестве */}
-      {hasMore && !loadingMore && (
-        <div className="load-more-hint">
-          Прокрутите вниз для загрузки ещё товаров
+      {/* Кнопка "Загрузить ещё" */}
+      {hasMore && (
+        <div className="load-more-container">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="load-more-btn"
+          >
+            {loadingMore ? (
+              <>
+                <span className="loading-spinner-small"></span>
+                Загрузка...
+              </>
+            ) : (
+              'Загрузить ещё'
+            )}
+          </button>
         </div>
       )}
     </div>
