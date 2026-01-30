@@ -16,12 +16,24 @@ export interface LeadTimeResult {
 
 /**
  * Рассчитывает срок доставки на основе наличия и количества заказа
+ * 
+ * @param astanaQty - остаток в Астане
+ * @param almatyQty - остаток в Алматы
+ * @param orderQty - количество заказа
+ * @param defaultLeadTime - дефолтный срок из БД (для Wago и др. фиксированных поставщиков)
  */
 export function getDynamicLeadTime(
   astanaQty: number,
   almatyQty: number,
-  orderQty: number
+  orderQty: number,
+  defaultLeadTime?: string
 ): LeadTimeResult {
+  // Если нет остатков, но есть дефолтный срок из БД (Wago и т.д.)
+  const noStock = (astanaQty || 0) === 0 && (almatyQty || 0) === 0
+  if (noStock && defaultLeadTime) {
+    return parseLeadTime(defaultLeadTime)
+  }
+
   // Если количество не указано или 0, возвращаем дефолтный срок
   if (!orderQty || orderQty <= 0) {
     if (astanaQty > 0) {
@@ -29,6 +41,10 @@ export function getDynamicLeadTime(
     }
     if (astanaQty + almatyQty > 0) {
       return { text: '10-14 дней', type: 'medium' }
+    }
+    // Используем дефолтный срок если есть
+    if (defaultLeadTime) {
+      return parseLeadTime(defaultLeadTime)
     }
     return { text: 'по запросу', type: 'slow' }
   }
@@ -43,8 +59,24 @@ export function getDynamicLeadTime(
     return { text: '10-14 дней', type: 'medium' }
   }
 
-  // Не хватает на складах
+  // Не хватает на складах - если есть дефолтный срок, используем его
+  if (defaultLeadTime && defaultLeadTime !== 'по запросу') {
+    return parseLeadTime(defaultLeadTime)
+  }
   return { text: 'по запросу', type: 'slow' }
+}
+
+/**
+ * Парсит строку срока в LeadTimeResult
+ */
+function parseLeadTime(leadTime: string): LeadTimeResult {
+  if (leadTime.includes('6-10')) {
+    return { text: leadTime, type: 'fast' }
+  }
+  if (leadTime.includes('10-14')) {
+    return { text: leadTime, type: 'medium' }
+  }
+  return { text: leadTime, type: 'slow' }
 }
 
 /**

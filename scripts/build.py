@@ -451,7 +451,13 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
             
             astana_qty = int(astana_stock.get(article, 0))
             almaty_qty = int(almaty_stock.get(article, 0))
-            lead_time = determine_lead_time(article, almaty_stock, astana_stock)
+            
+            # Используем срок из парсинга (для Wago уже '10-14 дней')
+            # Для остальных пересчитываем по остаткам
+            if p.get('srok'):
+                lead_time = p['srok']
+            else:
+                lead_time = determine_lead_time(article, almaty_stock, astana_stock)
             
             insert_data.append((
                 p['manufacturer'],

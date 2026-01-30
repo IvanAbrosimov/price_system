@@ -333,7 +333,8 @@ function ProductRow({ product, isEven, quantity, onQuantityChange }: ProductRowP
   const leadTime = getDynamicLeadTime(
     product.astanaQty || 0,
     product.almatyQty || 0,
-    quantity
+    quantity,
+    product.leadTimeDefault || undefined
   )
   
   return (
