@@ -1,28 +1,48 @@
 import { Product } from '../db/schema.js';
 /**
- * Сервис для работы с товарами
+ * Интерфейс для пагинации
+ */
+interface PaginationParams {
+    limit?: number;
+    offset?: number;
+}
+/**
+ * Результат с пагинацией
+ */
+interface PaginatedResult<T> {
+    items: T[];
+    total: number;
+    hasMore: boolean;
+}
+/**
+ * Сервис для работы с товарами (оптимизированный)
  */
 export declare class ProductsService {
+    private readonly DEFAULT_LIMIT;
+    private readonly MAX_LIMIT;
     /**
-     * Получить все товары
+     * Получить все товары с пагинацией
      */
-    getAll(): Promise<Product[]>;
+    getAll(params?: PaginationParams): Promise<PaginatedResult<Product>>;
     /**
-     * Получить товары по производителю
+     * Получить товары по производителю с пагинацией
      */
-    getByManufacturer(manufacturer: string): Promise<Product[]>;
+    getByManufacturer(manufacturer: string, params?: PaginationParams): Promise<PaginatedResult<Product>>;
     /**
      * Получить товар по артикулу
      */
     getByArticle(article: string): Promise<Product | null>;
     /**
-     * Поиск товаров
+     * Поиск товаров с пагинацией
      */
-    search(query: string): Promise<Product[]>;
+    search(query: string, params?: PaginationParams): Promise<PaginatedResult<Product>>;
     /**
-     * Получить список производителей
+     * Получить список производителей с количеством товаров
      */
-    getManufacturers(): Promise<string[]>;
+    getManufacturers(): Promise<{
+        name: string;
+        count: number;
+    }[]>;
     /**
      * Получить остатки по артикулу
      */
@@ -31,8 +51,9 @@ export declare class ProductsService {
         almaty: number;
     } | null>;
     /**
-     * Получить количество товаров
+     * Получить общее количество товаров
      */
-    getCount(): Promise<number>;
+    getCount(manufacturer?: string): Promise<number>;
 }
 export declare const productsService: ProductsService;
+export {};

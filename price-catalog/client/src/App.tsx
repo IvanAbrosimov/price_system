@@ -41,7 +41,7 @@ export default function App() {
   const { manufacturers } = useManufacturers()
   
   const cartHook = useCart()
-  const { items, addItem, updateQuantity, getQuantity, getTotal, getItemsCount, removeItem, clear } = cartHook
+  const { items, addItem, getQuantity, getTotal, getItemsCount, removeItem, clear } = cartHook
 
   // Группировка товаров по производителю для вкладки "Все"
   const groupedProducts = useMemo(() => {
