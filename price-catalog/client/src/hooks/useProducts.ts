@@ -296,9 +296,6 @@ export function useManufacturers() {
 }
 
 /**
- * Хук для получения остатков товара
- */
-/**
  * Хук для загрузки товаров конкретного производителя (lazy loading)
  * Загружает данные только когда группа раскрыта
  */
@@ -309,44 +306,47 @@ export function useManufacturerProducts(manufacturer: string, isExpanded: boolea
   const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(false)
-  const [offset, setOffset] = useState(0)
   const [loaded, setLoaded] = useState(false)
   
+  // Используем refs для избежания циклических зависимостей
+  const offsetRef = useRef(0)
+  const productsRef = useRef<Product[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
+  const loadingRef = useRef(false)
+  
   const cacheKey = `manufacturer:${manufacturer}`
 
-  // Загрузка товаров
-  const fetchProducts = useCallback(async (isLoadMore = false) => {
+  // Загрузка первой страницы
+  const fetchInitial = useCallback(async () => {
+    // Предотвращаем дублирование запросов
+    if (loadingRef.current) return
+    
+    // Проверяем кэш
+    const cached = getFromCache(cacheKey)
+    if (cached) {
+      setProducts(cached.products)
+      productsRef.current = cached.products
+      setTotal(cached.total)
+      setHasMore(cached.hasMore)
+      offsetRef.current = cached.products.length
+      setLoaded(true)
+      return
+    }
+
+    // Отменяем предыдущий запрос
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
     abortControllerRef.current = new AbortController()
-
-    const currentOffset = isLoadMore ? offset : 0
     
-    // Проверяем кэш
-    if (!isLoadMore) {
-      const cached = getFromCache(cacheKey)
-      if (cached) {
-        setProducts(cached.products)
-        setTotal(cached.total)
-        setHasMore(cached.hasMore)
-        setOffset(cached.products.length)
-        setLoaded(true)
-        return
-      }
-    }
-
-    if (isLoadMore) {
-      setLoadingMore(true)
-    } else {
-      setLoading(true)
-    }
+    loadingRef.current = true
+    setLoading(true)
+    setError(null)
 
     try {
       const params = new URLSearchParams()
       params.set('limit', PAGE_SIZE.toString())
-      params.set('offset', currentOffset.toString())
+      params.set('offset', '0')
       params.set('manufacturer', manufacturer)
 
       const response = await fetch(`${API_BASE}/products?${params.toString()}`, {
@@ -359,41 +359,81 @@ export function useManufacturerProducts(manufacturer: string, isExpanded: boolea
 
       const data: ProductsApiResponse = await response.json()
       
-      if (isLoadMore) {
-        const newProducts = [...products, ...data.products]
-        setProducts(newProducts)
-        setOffset(newProducts.length)
-        setToCache(cacheKey, {
-          products: newProducts,
-          total: data.total,
-          hasMore: data.hasMore
-        })
-      } else {
-        setProducts(data.products)
-        setOffset(data.products.length)
-        setToCache(cacheKey, {
-          products: data.products,
-          total: data.total,
-          hasMore: data.hasMore
-        })
-      }
-      
+      setProducts(data.products)
+      productsRef.current = data.products
       setTotal(data.total)
       setHasMore(data.hasMore)
+      offsetRef.current = data.products.length
       setLoaded(true)
+      
+      // Сохраняем в кэш
+      setToCache(cacheKey, {
+        products: data.products,
+        total: data.total,
+        hasMore: data.hasMore
+      })
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Ошибка')
     } finally {
+      loadingRef.current = false
       setLoading(false)
+    }
+  }, [manufacturer, cacheKey])
+
+  // Загрузка следующей страницы
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || !hasMore) return
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    
+    loadingRef.current = true
+    setLoadingMore(true)
+
+    try {
+      const params = new URLSearchParams()
+      params.set('limit', PAGE_SIZE.toString())
+      params.set('offset', offsetRef.current.toString())
+      params.set('manufacturer', manufacturer)
+
+      const response = await fetch(`${API_BASE}/products?${params.toString()}`, {
+        signal: abortControllerRef.current.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data: ProductsApiResponse = await response.json()
+      
+      const newProducts = [...productsRef.current, ...data.products]
+      setProducts(newProducts)
+      productsRef.current = newProducts
+      setHasMore(data.hasMore)
+      offsetRef.current = newProducts.length
+      
+      // Обновляем кэш
+      setToCache(cacheKey, {
+        products: newProducts,
+        total: data.total,
+        hasMore: data.hasMore
+      })
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    } finally {
+      loadingRef.current = false
       setLoadingMore(false)
     }
-  }, [manufacturer, offset, products, cacheKey])
+  }, [manufacturer, hasMore, cacheKey])
 
   // Загружаем только когда группа раскрыта и ещё не загружена
   useEffect(() => {
-    if (isExpanded && !loaded && !loading) {
-      fetchProducts(false)
+    if (isExpanded && !loaded) {
+      fetchInitial()
     }
     
     return () => {
@@ -401,13 +441,7 @@ export function useManufacturerProducts(manufacturer: string, isExpanded: boolea
         abortControllerRef.current.abort()
       }
     }
-  }, [isExpanded, loaded, loading])
-
-  const loadMore = useCallback(() => {
-    if (!loadingMore && hasMore) {
-      fetchProducts(true)
-    }
-  }, [loadingMore, hasMore, fetchProducts])
+  }, [isExpanded, loaded, fetchInitial])
 
   return {
     products,
