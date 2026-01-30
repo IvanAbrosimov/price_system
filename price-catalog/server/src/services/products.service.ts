@@ -1,6 +1,18 @@
-import { eq, ilike, or, sql, count } from 'drizzle-orm'
+import { eq, ilike, or, sql, count, asc } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { products, Product } from '../db/schema.js'
+
+/**
+ * Сортировка по приоритету срока доставки:
+ * 0 - есть на складе Астаны (быстрая доставка)
+ * 1 - есть на складе Алматы (средняя доставка)
+ * 2 - нет на складах (по запросу)
+ */
+const leadTimePriority = sql`CASE 
+  WHEN ${products.astanaQty} > 0 THEN 0 
+  WHEN ${products.almatyQty} > 0 THEN 1 
+  ELSE 2 
+END`
 
 /**
  * Интерфейс для пагинации
@@ -28,6 +40,7 @@ export class ProductsService {
 
   /**
    * Получить все товары с пагинацией
+   * Сортировка: сначала по сроку (наличие), затем по алфавиту
    */
   async getAll(params: PaginationParams = {}): Promise<PaginatedResult<Product>> {
     const limit = Math.min(params.limit || this.DEFAULT_LIMIT, this.MAX_LIMIT)
@@ -36,7 +49,7 @@ export class ProductsService {
     const [items, totalResult] = await Promise.all([
       db.select()
         .from(products)
-        .orderBy(products.manufacturer, products.article)
+        .orderBy(leadTimePriority, asc(products.name))
         .limit(limit)
         .offset(offset),
       db.select({ count: count() }).from(products)
@@ -53,6 +66,7 @@ export class ProductsService {
 
   /**
    * Получить товары по производителю с пагинацией
+   * Сортировка: сначала по сроку (наличие), затем по алфавиту
    */
   async getByManufacturer(manufacturer: string, params: PaginationParams = {}): Promise<PaginatedResult<Product>> {
     const limit = Math.min(params.limit || this.DEFAULT_LIMIT, this.MAX_LIMIT)
@@ -62,7 +76,7 @@ export class ProductsService {
       db.select()
         .from(products)
         .where(eq(products.manufacturer, manufacturer))
-        .orderBy(products.article)
+        .orderBy(leadTimePriority, asc(products.name))
         .limit(limit)
         .offset(offset),
       db.select({ count: count() })
@@ -93,6 +107,7 @@ export class ProductsService {
 
   /**
    * Поиск товаров с пагинацией
+   * Сортировка: сначала по сроку (наличие), затем по алфавиту
    */
   async search(query: string, params: PaginationParams = {}): Promise<PaginatedResult<Product>> {
     const limit = Math.min(params.limit || this.DEFAULT_LIMIT, this.MAX_LIMIT)
@@ -108,7 +123,7 @@ export class ProductsService {
       db.select()
         .from(products)
         .where(whereClause)
-        .orderBy(products.manufacturer, products.article)
+        .orderBy(leadTimePriority, asc(products.name))
         .limit(limit)
         .offset(offset),
       db.select({ count: count() })
