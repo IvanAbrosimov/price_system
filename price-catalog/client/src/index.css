@@ -380,6 +380,24 @@ body {
   @apply transition-colors duration-150;
 }
 
+/* Кнопка "Загрузить ещё" внутри группы */
+.load-more-row td {
+  @apply py-2 px-3 bg-gray-50 border-b border-gray-200;
+}
+
+.load-more-btn-inline {
+  @apply px-4 py-1.5 text-sm font-medium;
+  @apply bg-gray-200 text-gray-700 rounded;
+  @apply hover:bg-gray-300 active:bg-gray-400;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply transition-colors duration-150;
+}
+
+/* Утилита для отступа */
+.ml-2 {
+  margin-left: 0.5rem;
+}
+
 /* Счётчик на вкладке */
 .tab-count {
   @apply ml-1 text-gray-400 font-normal;

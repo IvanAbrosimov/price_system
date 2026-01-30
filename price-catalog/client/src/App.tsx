@@ -1,12 +1,12 @@
 /**
- * Главный компонент приложения - стиль Google Sheets с группировкой
+ * Главный компонент приложения - стиль Google Sheets с lazy loading
  */
 
-import { useState, useMemo } from 'react'
-import { useProducts, useManufacturers } from './hooks/useProducts'
+import { useState } from 'react'
+import { useProducts, useManufacturers, useManufacturerProducts } from './hooks/useProducts'
 import { useCart } from './hooks/useCart'
 import { getDynamicLeadTime, getLeadTimeClass, formatPrice } from './utils/leadTime'
-import { Product, MANUFACTURER_GROUPS } from './types'
+import { Product } from './types'
 import CartDrawer from './components/CartDrawer'
 import QuantityInput from './components/QuantityInput'
 
@@ -16,18 +16,15 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   
   // Состояние схлопывания групп производителей
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {}
-    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
-      initial[manufacturer] = true // По умолчанию свёрнуто
-    })
-    return initial
-  })
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   
-  // Загрузка товаров с пагинацией
+  // Загрузка производителей с количеством товаров
+  const { manufacturers, loading: manufacturersLoading } = useManufacturers()
+  
+  // Загрузка товаров (только для вкладок производителей и поиска)
   const { 
     products, 
-    loading, 
+    loading: productsLoading, 
     loadingMore,
     total, 
     hasMore, 
@@ -37,28 +34,8 @@ export default function App() {
     search: searchQuery
   })
   
-  // Загрузка производителей с количеством товаров
-  const { manufacturers } = useManufacturers()
-  
   const cartHook = useCart()
   const { items, addItem, getQuantity, getTotal, getItemsCount, removeItem, clear } = cartHook
-
-  // Группировка товаров по производителю для вкладки "Все"
-  const groupedProducts = useMemo(() => {
-    if (activeTab !== 'Все') return null
-    
-    const groups: Record<string, Product[]> = {}
-    
-    products.forEach(product => {
-      const manufacturerGroup = findManufacturerGroup(product.manufacturer)
-      if (!groups[manufacturerGroup]) {
-        groups[manufacturerGroup] = []
-      }
-      groups[manufacturerGroup].push(product)
-    })
-    
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [products, activeTab])
 
   // Обработчик изменения количества
   const handleQuantityChange = (product: Product, newQty: number) => {
@@ -80,14 +57,23 @@ export default function App() {
   // Развернуть/свернуть все группы
   const toggleAllGroups = (collapse: boolean) => {
     const newState: Record<string, boolean> = {}
-    Object.keys(MANUFACTURER_GROUPS).forEach(manufacturer => {
-      newState[manufacturer] = collapse
+    manufacturers.forEach(m => {
+      newState[m.name] = collapse
     })
     setCollapsedGroups(newState)
   }
 
   // Формируем список вкладок
   const tabs = ['Все', ...manufacturers.map(m => m.name)]
+  
+  // Общее количество товаров
+  const totalProducts = activeTab === 'Все' 
+    ? manufacturers.reduce((sum, m) => sum + m.count, 0)
+    : total
+
+  // Показываем вкладку "Все" или поиск?
+  const showAllTab = activeTab === 'Все' && !searchQuery
+  const loading = showAllTab ? manufacturersLoading : productsLoading
 
   return (
     <div className="app-container">
@@ -96,8 +82,7 @@ export default function App() {
         <div className="header-left">
           <span className="header-title">📊 Прайс-каталог</span>
           <span className="header-count">
-            Найдено: {total.toLocaleString('ru-RU')} товаров
-            {products.length < total && ` (загружено ${products.length.toLocaleString('ru-RU')})`}
+            Всего: {totalProducts.toLocaleString('ru-RU')} товаров
           </span>
         </div>
         
@@ -137,8 +122,8 @@ export default function App() {
 
       {/* Основное содержимое */}
       <div className="main-content">
-        {/* Кнопки развернуть/свернуть все (только на вкладке "Все") */}
-        {activeTab === 'Все' && !loading && products.length > 0 && (
+        {/* Кнопки развернуть/свернуть все (только на вкладке "Все" без поиска) */}
+        {showAllTab && !loading && manufacturers.length > 0 && (
           <div className="collapse-controls">
             <button 
               onClick={() => toggleAllGroups(false)}
@@ -176,27 +161,27 @@ export default function App() {
                     Загрузка...
                   </td>
                 </tr>
+              ) : showAllTab ? (
+                // Вкладка "Все" - lazy loading групп
+                manufacturers.map((mfr) => (
+                  <LazyManufacturerGroup
+                    key={mfr.name}
+                    manufacturer={mfr.name}
+                    count={mfr.count}
+                    isCollapsed={collapsedGroups[mfr.name] !== false} // по умолчанию свёрнуто
+                    onToggle={() => toggleGroup(mfr.name)}
+                    getQuantity={getQuantity}
+                    onQuantityChange={handleQuantityChange}
+                  />
+                ))
               ) : products.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="empty-cell">
                     Товары не найдены
                   </td>
                 </tr>
-              ) : activeTab === 'Все' && groupedProducts ? (
-                // Отображение с группировкой по производителям
-                groupedProducts.map(([manufacturer, manufacturerProducts]) => (
-                  <ManufacturerGroupRows
-                    key={manufacturer}
-                    manufacturer={manufacturer}
-                    products={manufacturerProducts}
-                    isCollapsed={collapsedGroups[manufacturer] ?? true}
-                    onToggle={() => toggleGroup(manufacturer)}
-                    getQuantity={getQuantity}
-                    onQuantityChange={handleQuantityChange}
-                  />
-                ))
               ) : (
-                // Обычное отображение без группировки (на вкладках конкретных производителей)
+                // Вкладки производителей или поиск - обычная таблица
                 products.map((product, idx) => (
                   <ProductRow
                     key={product.id}
@@ -210,8 +195,8 @@ export default function App() {
             </tbody>
           </table>
           
-          {/* Кнопка "Загрузить ещё" */}
-          {hasMore && !loading && (
+          {/* Кнопка "Загрузить ещё" (только для вкладок производителей/поиска) */}
+          {!showAllTab && hasMore && !loading && (
             <div className="load-more-container">
               <button
                 onClick={loadMore}
@@ -267,44 +252,28 @@ export default function App() {
   )
 }
 
-/**
- * Находит группу производителя по имени
- */
-function findManufacturerGroup(productManufacturer: string): string {
-  const normalizedProduct = productManufacturer.toLowerCase()
-  
-  for (const [group, lines] of Object.entries(MANUFACTURER_GROUPS)) {
-    for (const line of lines) {
-      if (normalizedProduct.includes(line.toLowerCase()) || line.toLowerCase().includes(normalizedProduct)) {
-        return group
-      }
-    }
-    if (normalizedProduct.includes(group.toLowerCase()) || group.toLowerCase().includes(normalizedProduct)) {
-      return group
-    }
-  }
-  
-  return productManufacturer
-}
-
-// Компонент строк группы производителя
-interface ManufacturerGroupRowsProps {
+// Компонент группы с lazy loading
+interface LazyManufacturerGroupProps {
   manufacturer: string
-  products: Product[]
+  count: number
   isCollapsed: boolean
   onToggle: () => void
   getQuantity: (article: string) => number
   onQuantityChange: (product: Product, qty: number) => void
 }
 
-function ManufacturerGroupRows({
+function LazyManufacturerGroup({
   manufacturer,
-  products,
+  count,
   isCollapsed,
   onToggle,
   getQuantity,
   onQuantityChange
-}: ManufacturerGroupRowsProps) {
+}: LazyManufacturerGroupProps) {
+  // Lazy loading - загружаем только когда группа раскрыта
+  const { products, loading, loadingMore, hasMore, loadMore, loaded } = 
+    useManufacturerProducts(manufacturer, !isCollapsed)
+
   return (
     <>
       {/* Строка-заголовок группы */}
@@ -315,13 +284,16 @@ function ManufacturerGroupRows({
               ▶
             </span>
             <span className="group-name">{manufacturer}</span>
-            <span className="group-count">({products.length} товаров)</span>
+            <span className="group-count">({count.toLocaleString('ru-RU')} товаров)</span>
+            {!isCollapsed && loading && (
+              <span className="loading-spinner-small ml-2"></span>
+            )}
           </div>
         </td>
       </tr>
       
       {/* Строки товаров (если не свёрнуто) */}
-      {!isCollapsed && products.map((product, idx) => (
+      {!isCollapsed && loaded && products.map((product, idx) => (
         <ProductRow
           key={product.id}
           product={product}
@@ -330,6 +302,21 @@ function ManufacturerGroupRows({
           onQuantityChange={onQuantityChange}
         />
       ))}
+      
+      {/* Кнопка "Загрузить ещё" внутри группы */}
+      {!isCollapsed && loaded && hasMore && (
+        <tr className="load-more-row">
+          <td colSpan={6}>
+            <button
+              onClick={(e) => { e.stopPropagation(); loadMore(); }}
+              disabled={loadingMore}
+              className="load-more-btn-inline"
+            >
+              {loadingMore ? 'Загрузка...' : `Загрузить ещё (${manufacturer})`}
+            </button>
+          </td>
+        </tr>
+      )}
     </>
   )
 }

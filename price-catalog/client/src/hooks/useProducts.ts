@@ -298,6 +298,129 @@ export function useManufacturers() {
 /**
  * Хук для получения остатков товара
  */
+/**
+ * Хук для загрузки товаров конкретного производителя (lazy loading)
+ * Загружает данные только когда группа раскрыта
+ */
+export function useManufacturerProducts(manufacturer: string, isExpanded: boolean) {
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [offset, setOffset] = useState(0)
+  const [loaded, setLoaded] = useState(false)
+  
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const cacheKey = `manufacturer:${manufacturer}`
+
+  // Загрузка товаров
+  const fetchProducts = useCallback(async (isLoadMore = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
+    const currentOffset = isLoadMore ? offset : 0
+    
+    // Проверяем кэш
+    if (!isLoadMore) {
+      const cached = getFromCache(cacheKey)
+      if (cached) {
+        setProducts(cached.products)
+        setTotal(cached.total)
+        setHasMore(cached.hasMore)
+        setOffset(cached.products.length)
+        setLoaded(true)
+        return
+      }
+    }
+
+    if (isLoadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
+
+    try {
+      const params = new URLSearchParams()
+      params.set('limit', PAGE_SIZE.toString())
+      params.set('offset', currentOffset.toString())
+      params.set('manufacturer', manufacturer)
+
+      const response = await fetch(`${API_BASE}/products?${params.toString()}`, {
+        signal: abortControllerRef.current.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data: ProductsApiResponse = await response.json()
+      
+      if (isLoadMore) {
+        const newProducts = [...products, ...data.products]
+        setProducts(newProducts)
+        setOffset(newProducts.length)
+        setToCache(cacheKey, {
+          products: newProducts,
+          total: data.total,
+          hasMore: data.hasMore
+        })
+      } else {
+        setProducts(data.products)
+        setOffset(data.products.length)
+        setToCache(cacheKey, {
+          products: data.products,
+          total: data.total,
+          hasMore: data.hasMore
+        })
+      }
+      
+      setTotal(data.total)
+      setHasMore(data.hasMore)
+      setLoaded(true)
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    } finally {
+      setLoading(false)
+      setLoadingMore(false)
+    }
+  }, [manufacturer, offset, products, cacheKey])
+
+  // Загружаем только когда группа раскрыта и ещё не загружена
+  useEffect(() => {
+    if (isExpanded && !loaded && !loading) {
+      fetchProducts(false)
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [isExpanded, loaded, loading])
+
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      fetchProducts(true)
+    }
+  }, [loadingMore, hasMore, fetchProducts])
+
+  return {
+    products,
+    loading,
+    loadingMore,
+    error,
+    total,
+    hasMore,
+    loadMore,
+    loaded
+  }
+}
+
 export function useStock(article: string) {
   const [stock, setStock] = useState<{ astana: number; almaty: number } | null>(null)
   const [loading, setLoading] = useState(false)
