@@ -8,6 +8,11 @@ on:
   repository_dispatch:
     types: [build-price]
 
+# Отменяет предыдущую сборку если запускается новая
+concurrency:
+  group: build-price
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
