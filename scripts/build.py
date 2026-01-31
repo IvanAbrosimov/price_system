@@ -819,7 +819,7 @@ def main():
         
         # 9. Загрузка в PostgreSQL
         print("\n🐘 Загрузка в PostgreSQL...")
-        success = upload_to_postgresql(all_products, settings_dict, almaty_stock, astana_stock, margins_dict)
+        db_success = upload_to_postgresql(all_products, settings_dict, almaty_stock, astana_stock, margins_dict)
         
         # 10. Загрузка INTERNAL на Google Drive (без даты, чтобы можно было обновлять)
         if use_google_drive:
@@ -829,16 +829,33 @@ def main():
         duration = time.time() - start_time
         
         print("\n" + "=" * 70)
-        print("✅ ВСЕ ГОТОВО!")
-        print(f"⏱ Время выполнения: {duration:.1f} сек")
-        print("=" * 70)
         
         # 11. Отправка файла и уведомления в Telegram
-        if success:
+        if db_success:
+            print("✅ ВСЕ ГОТОВО!")
+            print(f"⏱ Время выполнения: {duration:.1f} сек")
+            print("=" * 70)
+            
             caption = f"""✅ <b>Сборка завершена!</b>
 
 📊 Товаров: <b>{len(all_products):,}</b>
 ⏱ Время: <b>{duration:.1f} сек</b>
+🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"""
+            
+            send_telegram_file(internal_path, caption)
+        else:
+            print("⚠️ СБОРКА ЗАВЕРШЕНА С ОШИБКАМИ!")
+            print(f"⏱ Время выполнения: {duration:.1f} сек")
+            print("=" * 70)
+            
+            # Отправляем уведомление об ошибке PostgreSQL
+            notify_error("Ошибка загрузки в PostgreSQL. Файл создан, но данные на сайт не загружены.")
+            
+            # Всё равно отправляем файл
+            caption = f"""⚠️ <b>Сборка завершена с ошибками!</b>
+
+📊 Товаров: <b>{len(all_products):,}</b>
+❌ PostgreSQL: не загружено
 🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"""
             
             send_telegram_file(internal_path, caption)
