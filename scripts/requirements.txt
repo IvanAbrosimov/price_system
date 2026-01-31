@@ -4,8 +4,17 @@
 pandas==2.1.4
 openpyxl==3.1.2
 
-# Google Sheets API
-gspread==5.12.3
+# Google Drive API
+google-api-python-client==2.111.0
 google-auth==2.25.2
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
+
+# Google Sheets API (для совместимости)
+gspread==5.12.3
+
+# PostgreSQL
+psycopg2-binary==2.9.9
+
+# HTTP запросы (для Telegram)
+requests==2.31.0

@@ -1,24 +1,43 @@
 """
 Price System - Автоматизированная система генерации прайс-листов
-Версия: 4.0 (PostgreSQL only)
+Версия: 5.0 (Google Drive + Telegram + Name Cache)
 
 Функционал:
-- Парсинг прайсов от поставщика EuroElectric (из единого файла Euroelectric.xlsx)
-- Парсинг прайса Axima (Wago)
-- Генерация внутреннего прайса (INTERNAL.xlsx)
-- Генерация клиентского прайса (PUBLIC.xlsx)
-- Загрузка в PostgreSQL для веб-приложения
+- Скачивание файлов из Google Drive
+- Парсинг прайсов от поставщиков
+- Кэширование наименований (name_cache.xlsx)
+- Генерация прайс-листов
+- Загрузка в PostgreSQL
+- Уведомления в Telegram
 """
 
 import pandas as pd
 import os
 import sys
-from typing import Dict, List, Tuple
+import io
+import json
+import requests
+from typing import Dict, List, Tuple, Optional
+from datetime import datetime
+
+# Google Drive API
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 # ============================================================================
-# КОНСТАНТЫ
+# КОНФИГУРАЦИЯ
 # ============================================================================
 
+# Google Drive
+GOOGLE_DRIVE_FOLDER_ID = "1oxEm8YySlfqXVQOptkOc0_Eoq3WJWL06"
+CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "google_credentials.json")
+
+# Telegram
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8579599270:AAE7-Ote1J1xlOKbkzF19eX4PmTTsl_ZU8I")
+TELEGRAM_CHAT_IDS = os.environ.get("TELEGRAM_CHAT_IDS", "272265312").split(",")
+
+# Директории
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
 
@@ -34,6 +53,161 @@ ALLOWED_BRANDS = [
     'OBO Bettermann',
     'Schneider Electric'
 ]
+
+# Файлы для скачивания из Google Drive
+DRIVE_FILES = {
+    'Euroelectric.xlsx': None,
+    'Axima_price.xlsx': None,
+    'ostatki_Euroelectric.xlsx': None,
+    'dostupnost_Euroelectric.xlsx': None,
+    'settings.xlsx': None,
+    'name_cache.xlsx': None,
+}
+
+# ============================================================================
+# TELEGRAM УВЕДОМЛЕНИЯ
+# ============================================================================
+
+def send_telegram_message(message: str, parse_mode: str = "HTML"):
+    """Отправляет сообщение в Telegram"""
+    if not TELEGRAM_BOT_TOKEN:
+        print("⚠️ TELEGRAM_BOT_TOKEN не указан, уведомления отключены")
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    
+    for chat_id in TELEGRAM_CHAT_IDS:
+        chat_id = chat_id.strip()
+        if not chat_id:
+            continue
+        try:
+            response = requests.post(url, json={
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": parse_mode
+            }, timeout=10)
+            if response.status_code == 200:
+                print(f"  📱 Telegram: сообщение отправлено в {chat_id}")
+            else:
+                print(f"  ⚠️ Telegram ошибка: {response.text}")
+        except Exception as e:
+            print(f"  ⚠️ Telegram ошибка: {e}")
+
+
+def notify_start():
+    """Уведомление о начале сборки"""
+    send_telegram_message("🚀 <b>Сборка прайса запущена</b>\n\nСкачиваю файлы из Google Drive...")
+
+
+def notify_success(total_products: int, duration: float):
+    """Уведомление об успешной сборке"""
+    message = f"""✅ <b>Сборка завершена успешно!</b>
+
+📊 Загружено товаров: <b>{total_products:,}</b>
+⏱ Время сборки: <b>{duration:.1f} сек</b>
+🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"""
+    send_telegram_message(message)
+
+
+def notify_error(error: str):
+    """Уведомление об ошибке"""
+    message = f"""❌ <b>Ошибка сборки!</b>
+
+<code>{error[:500]}</code>
+
+🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"""
+    send_telegram_message(message)
+
+
+# ============================================================================
+# GOOGLE DRIVE
+# ============================================================================
+
+def get_drive_service():
+    """Создает сервис Google Drive API"""
+    # Проверяем наличие credentials
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    
+    if creds_json:
+        # Credentials из переменной окружения (для GitHub Actions)
+        creds_dict = json.loads(creds_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=['https://www.googleapis.com/auth/drive.readonly']
+        )
+    elif os.path.exists(CREDENTIALS_FILE):
+        # Credentials из файла (для локального запуска)
+        credentials = service_account.Credentials.from_service_account_file(
+            CREDENTIALS_FILE,
+            scopes=['https://www.googleapis.com/auth/drive.readonly']
+        )
+    else:
+        raise FileNotFoundError(
+            f"❌ Credentials не найдены!\n"
+            f"Укажите GOOGLE_CREDENTIALS_JSON или создайте {CREDENTIALS_FILE}"
+        )
+    
+    return build('drive', 'v3', credentials=credentials)
+
+
+def list_drive_files(service) -> Dict[str, str]:
+    """Получает список файлов в папке Google Drive"""
+    results = service.files().list(
+        q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false",
+        fields="files(id, name, mimeType, modifiedTime)"
+    ).execute()
+    
+    files = {}
+    for f in results.get('files', []):
+        files[f['name']] = f['id']
+        print(f"  📄 {f['name']}")
+    
+    return files
+
+
+def download_file_from_drive(service, file_id: str, file_name: str) -> bytes:
+    """Скачивает файл из Google Drive"""
+    request = service.files().get_media(fileId=file_id)
+    file_buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_buffer, request)
+    
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    
+    file_buffer.seek(0)
+    return file_buffer.read()
+
+
+def download_all_files_from_drive() -> bool:
+    """Скачивает все необходимые файлы из Google Drive"""
+    print("\n📥 Скачивание файлов из Google Drive...")
+    
+    try:
+        service = get_drive_service()
+        drive_files = list_drive_files(service)
+        
+        os.makedirs(INPUT_DIR, exist_ok=True)
+        
+        for file_name in DRIVE_FILES.keys():
+            if file_name in drive_files:
+                file_id = drive_files[file_name]
+                content = download_file_from_drive(service, file_id, file_name)
+                
+                local_path = os.path.join(INPUT_DIR, file_name)
+                with open(local_path, 'wb') as f:
+                    f.write(content)
+                
+                print(f"  ✅ {file_name} ({len(content) / 1024:.1f} KB)")
+            else:
+                if file_name != 'name_cache.xlsx':  # name_cache может не существовать
+                    print(f"  ⚠️ {file_name} не найден в Google Drive")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка при скачивании из Google Drive: {e}")
+        return False
 
 # ============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -57,16 +231,59 @@ def safe_float(x):
 
 
 # ============================================================================
+# КЭШ НАИМЕНОВАНИЙ
+# ============================================================================
+
+def load_name_cache() -> Dict[str, str]:
+    """Загружает кэш наименований из name_cache.xlsx"""
+    cache_file = os.path.join(INPUT_DIR, "name_cache.xlsx")
+    cache = {}
+    
+    if not os.path.exists(cache_file):
+        print("  ℹ️ Файл name_cache.xlsx не найден, кэш пустой")
+        return cache
+    
+    try:
+        df = pd.read_excel(cache_file)
+        
+        # Ищем колонки с артикулом и наименованием
+        article_col = None
+        name_col = None
+        
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if 'артикул' in col_lower or 'article' in col_lower:
+                article_col = col
+            elif 'наименование' in col_lower or 'name' in col_lower or 'название' in col_lower:
+                name_col = col
+        
+        if article_col is None or name_col is None:
+            print(f"  ⚠️ В name_cache.xlsx не найдены колонки Артикул/Наименование")
+            print(f"     Найденные колонки: {list(df.columns)}")
+            return cache
+        
+        for _, row in df.iterrows():
+            article = row[article_col]
+            name = row[name_col]
+            
+            if pd.notna(article) and pd.notna(name):
+                article_key = str(article).strip().lower()
+                cache[article_key] = str(name).strip()
+        
+        print(f"  📚 Загружено {len(cache)} наименований из кэша")
+        
+    except Exception as e:
+        print(f"  ⚠️ Ошибка при чтении name_cache.xlsx: {e}")
+    
+    return cache
+
+
+# ============================================================================
 # ЗАГРУЗКА НАСТРОЕК
 # ============================================================================
 
 def load_settings() -> Tuple[Dict, Dict]:
-    """
-    Загружает настройки из settings.xlsx
-    
-    Returns:
-        (settings_dict, margins_dict)
-    """
+    """Загружает настройки из settings.xlsx"""
     settings_file = os.path.join(INPUT_DIR, "settings.xlsx")
     
     if not os.path.exists(settings_file):
@@ -93,12 +310,10 @@ def load_settings() -> Tuple[Dict, Dict]:
         'by_article': {}
     }
     
-    # Заполняем маржу по производителям
     for _, row in margins_by_mfr.iterrows():
         if not pd.isna(row['manufacturer']) and not pd.isna(row['margin']):
             margins_dict['by_manufacturer'][row['manufacturer']] = float(row['margin'])
     
-    # Заполняем маржу по артикулам
     for _, row in margins_by_art.iterrows():
         if not pd.isna(row['article']) and not pd.isna(row['margin']):
             margins_dict['by_article'][str(row['article'])] = float(row['margin'])
@@ -113,8 +328,7 @@ def validate_settings(settings_dict: Dict):
     for param in required:
         if param not in settings_dict or pd.isna(settings_dict[param]):
             raise ValueError(
-                f"❌ Обязательный параметр '{param}' не указан в settings.xlsx!\n"
-                f"Откройте input/settings.xlsx и заполните лист 'Settings'"
+                f"❌ Обязательный параметр '{param}' не указан в settings.xlsx!"
             )
     
     print("✅ Все обязательные параметры заполнены")
@@ -125,20 +339,13 @@ def validate_settings(settings_dict: Dict):
 # ============================================================================
 
 def load_stock() -> Tuple[Dict, Dict]:
-    """
-    Загружает остатки из Алматы и Астаны
-    
-    Returns:
-        (almaty_stock, astana_stock) - словари {article: qty}
-    """
+    """Загружает остатки из Алматы и Астаны"""
     almaty_file = os.path.join(INPUT_DIR, "ostatki_Euroelectric.xlsx")
     astana_file = os.path.join(INPUT_DIR, "dostupnost_Euroelectric.xlsx")
     
     almaty_stock = {}
     astana_stock = {}
     
-    # Загружаем остатки Алматы (ostatki_Euroelectric.xlsx)
-    # Структура: артикул в столбце 0, количество в столбце 10, данные с строки 12
     if os.path.exists(almaty_file):
         df = pd.read_excel(almaty_file, header=None)
         for i in range(12, len(df)):
@@ -154,8 +361,6 @@ def load_stock() -> Tuple[Dict, Dict]:
     else:
         print(f"  ⚠️ Файл {almaty_file} не найден")
     
-    # Загружаем доступность Астаны (dostupnost_Euroelectric.xlsx)
-    # Структура: артикул в столбце 0, количество в столбце 7, данные с строки 8
     if os.path.exists(astana_file):
         df = pd.read_excel(astana_file, header=None)
         for i in range(8, len(df)):
@@ -175,23 +380,14 @@ def load_stock() -> Tuple[Dict, Dict]:
 
 
 def determine_lead_time(article: str, almaty: Dict, astana: Dict) -> str:
-    """
-    Определяет срок доставки по наличию
-    
-    ЛОГИКА:
-    1. Если есть в Астане (dostupnost) → "6-10 дней"
-    2. Если есть в Алматы (ostatki) → "10-14 дней"
-    3. Нигде нет → "по запросу"
-    """
+    """Определяет срок доставки по наличию"""
     astana_qty = astana.get(article, 0)
     almaty_qty = almaty.get(article, 0)
     
     if astana_qty > 0:
         return "6-10 дней"
-    
     if almaty_qty > 0:
         return "10-14 дней"
-    
     return "по запросу"
 
 
@@ -199,18 +395,8 @@ def determine_lead_time(article: str, almaty: Dict, astana: Dict) -> str:
 # ПАРСИНГ EUROELECTRIC
 # ============================================================================
 
-def parse_euroelectric(almaty: Dict, astana: Dict) -> List[Dict]:
-    """
-    Парсит единый файл Euroelectric.xlsx
-    
-    Структура файла:
-    - Столбец 0 (индекс 0): Артикул
-    - Столбец 1 (индекс 1): Наименование
-    - Столбец 3 (индекс 3): Цена за ед. в тенге с НДС (это РРЦ)
-    - Столбец 4 (индекс 4): Бренд
-    
-    Цена: РРЦ * 0.6 (минус 40%)
-    """
+def parse_euroelectric(almaty: Dict, astana: Dict, name_cache: Dict) -> List[Dict]:
+    """Парсит единый файл Euroelectric.xlsx с использованием кэша наименований"""
     main_file = os.path.join(INPUT_DIR, "Euroelectric.xlsx")
     
     if not os.path.exists(main_file):
@@ -220,31 +406,35 @@ def parse_euroelectric(almaty: Dict, astana: Dict) -> List[Dict]:
     df = pd.read_excel(main_file)
     all_products = []
     brand_counts = {}
+    cache_hits = 0
+    missing_names = 0
     
     for i, row in df.iterrows():
-        # Получаем бренд (столбец 4, индекс 4)
         brand = clean(row.iloc[4]) if len(row) > 4 else None
         
-        # Пропускаем если бренд не в списке нужных
         if not brand or brand not in ALLOWED_BRANDS:
             continue
         
-        # Получаем данные
-        article_raw = clean(row.iloc[0]) if len(row) > 0 else None  # Столбец 0
-        name = clean(row.iloc[1]) if len(row) > 1 else None         # Столбец 1
-        rrc = safe_float(row.iloc[3]) if len(row) > 3 else None     # Столбец 3 (Цена за ед.)
+        article_raw = clean(row.iloc[0]) if len(row) > 0 else None
+        name = clean(row.iloc[1]) if len(row) > 1 else None
+        rrc = safe_float(row.iloc[3]) if len(row) > 3 else None
         
-        # Пропускаем невалидные записи
-        if not article_raw or not name or rrc is None or rrc <= 0:
+        if not article_raw or rrc is None or rrc <= 0:
             continue
         
-        # Приводим артикул к нижнему регистру
         article = article_raw.lower() if isinstance(article_raw, str) else str(article_raw).lower()
         
-        # Цена: РРЦ минус 40%
-        dealer_price_kzt = round(rrc * 0.6, 2)
+        # Проверяем кэш если наименование пустое
+        if not name or pd.isna(name) or str(name).strip() == '':
+            cached_name = name_cache.get(article)
+            if cached_name:
+                name = cached_name
+                cache_hits += 1
+            else:
+                name = f"[{article_raw}]"  # Временное название
+                missing_names += 1
         
-        # Определяем срок доставки
+        dealer_price_kzt = round(rrc * 0.6, 2)
         lead_time = determine_lead_time(article, almaty, astana)
         
         all_products.append({
@@ -257,11 +447,10 @@ def parse_euroelectric(almaty: Dict, astana: Dict) -> List[Dict]:
             'image_url': ''
         })
         
-        # Считаем по брендам
         brand_counts[brand] = brand_counts.get(brand, 0) + 1
     
-    # Выводим статистику по брендам
     print(f"  📋 Всего товаров EuroElectric: {len(all_products)}")
+    print(f"  📚 Из кэша: {cache_hits} | Без наименования: {missing_names}")
     for brand in sorted(brand_counts.keys()):
         print(f"     • {brand}: {brand_counts[brand]}")
     
@@ -388,14 +577,12 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
         from psycopg2.extras import execute_values
     except ImportError:
         print("❌ Библиотека psycopg2 не установлена!")
-        print("Установите: pip3 install psycopg2-binary")
         return False
     
     database_url = os.environ.get('DATABASE_URL') or settings_dict.get('database_url')
     
     if not database_url:
         print("❌ DATABASE_URL не указан!")
-        print("Укажите в переменных окружения или в settings.xlsx (параметр database_url)")
         return False
     
     print("\n🔄 Загрузка в PostgreSQL...")
@@ -406,7 +593,6 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
         
         kurs = settings_dict.get('kurs', 5)
         
-        # Создаем таблицу если не существует
         cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id SERIAL PRIMARY KEY,
@@ -423,22 +609,10 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
             )
         """)
         
-        # Создаем индексы для быстрого поиска
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_products_manufacturer 
-            ON products(manufacturer)
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_products_article 
-            ON products(article)
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_products_manufacturer_article 
-            ON products(manufacturer, article)
-        """)
-        print("  📊 Индексы созданы/проверены")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_products_manufacturer ON products(manufacturer)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_products_article ON products(article)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_products_manufacturer_article ON products(manufacturer, article)")
         
-        # Очищаем старые данные
         cur.execute("TRUNCATE TABLE products RESTART IDENTITY")
         print("  🗑️ Таблица products очищена")
         
@@ -451,13 +625,7 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
             
             astana_qty = int(astana_stock.get(article, 0))
             almaty_qty = int(almaty_stock.get(article, 0))
-            
-            # Используем срок из парсинга (для Wago уже '10-14 дней')
-            # Для остальных пересчитываем по остаткам
-            if p.get('srok'):
-                lead_time = p['srok']
-            else:
-                lead_time = determine_lead_time(article, almaty_stock, astana_stock)
+            lead_time = p.get('srok') or determine_lead_time(article, almaty_stock, astana_stock)
             
             insert_data.append((
                 p['manufacturer'],
@@ -484,19 +652,14 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
         cur.execute("SELECT COUNT(*) FROM products")
         count = cur.fetchone()[0]
         
-        cur.execute("SELECT COUNT(DISTINCT manufacturer) FROM products")
-        mfr_count = cur.fetchone()[0]
-        
         cur.close()
         conn.close()
         
-        print(f"  ✅ Загружено {count} товаров от {mfr_count} производителей")
+        print(f"  ✅ Загружено {count} товаров")
         return True
         
     except Exception as e:
-        print(f"❌ Ошибка при загрузке в PostgreSQL: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Ошибка PostgreSQL: {e}")
         return False
 
 
@@ -505,69 +668,84 @@ def upload_to_postgresql(products: List[Dict], settings_dict: Dict,
 # ============================================================================
 
 def main():
-    """
-    Основная функция
+    """Основная функция"""
+    import time
+    start_time = time.time()
     
-    Использование:
-        python3 build.py    # Парсинг файлов и загрузка в PostgreSQL
-    """
     print("=" * 70)
-    print("🚀 PRICE SYSTEM - Генерация прайс-листов (v4.0)")
+    print("🚀 PRICE SYSTEM v5.0 (Google Drive + Telegram + Name Cache)")
     print("=" * 70)
+    
+    # Определяем режим работы
+    use_google_drive = os.environ.get('USE_GOOGLE_DRIVE', 'true').lower() == 'true'
     
     try:
-        # 1. Загрузка настроек
+        # Уведомление о старте
+        notify_start()
+        
+        # 1. Скачивание файлов из Google Drive (если включено)
+        if use_google_drive:
+            if not download_all_files_from_drive():
+                raise Exception("Не удалось скачать файлы из Google Drive")
+        else:
+            print("\n📂 Используем локальные файлы из папки input/")
+        
+        # 2. Загрузка кэша наименований
+        print("\n📚 Загрузка кэша наименований...")
+        name_cache = load_name_cache()
+        
+        # 3. Загрузка настроек
         print("\n📋 Загрузка настроек...")
         settings_dict, margins_dict = load_settings()
         validate_settings(settings_dict)
         
-        # 2. Загрузка остатков
+        # 4. Загрузка остатков
         print("\n📦 Загрузка остатков...")
         almaty_stock, astana_stock = load_stock()
         
-        # 3. Парсинг EuroElectric (новый единый файл)
-        print("\n🔍 Парсинг EuroElectric (Euroelectric.xlsx)...")
-        euro_products = parse_euroelectric(almaty_stock, astana_stock)
+        # 5. Парсинг EuroElectric
+        print("\n🔍 Парсинг EuroElectric...")
+        euro_products = parse_euroelectric(almaty_stock, astana_stock, name_cache)
         
-        # 4. Парсинг Axima (Wago)
+        # 6. Парсинг Axima (Wago)
         print("\n🔍 Парсинг Axima (Wago)...")
         wago_products = parse_axima()
         
-        # 5. Объединение всех товаров
+        # 7. Объединение всех товаров
         all_products = euro_products + wago_products
         print(f"\n📊 Всего товаров: {len(all_products)}")
         
         if len(all_products) == 0:
-            print("⚠️ Нет товаров для обработки!")
-            return
+            raise Exception("Нет товаров для обработки!")
         
-        # 6. Генерация Excel файлов
+        # 8. Генерация Excel файлов
         print("\n💾 Генерация Excel файлов...")
         generate_internal(all_products)
         generate_public(all_products, settings_dict, margins_dict)
         
-        # 7. Загрузка в PostgreSQL
+        # 9. Загрузка в PostgreSQL
         print("\n🐘 Загрузка в PostgreSQL...")
         success = upload_to_postgresql(all_products, settings_dict, almaty_stock, astana_stock, margins_dict)
         
+        # Подсчет времени
+        duration = time.time() - start_time
+        
         print("\n" + "=" * 70)
         print("✅ ВСЕ ГОТОВО!")
+        print(f"⏱ Время выполнения: {duration:.1f} сек")
         print("=" * 70)
-        print(f"\nФайлы созданы в папке: {OUTPUT_DIR}/")
-        print("- INTERNAL.xlsx (для вас)")
-        print("- PUBLIC.xlsx (для клиентов)")
         
+        # Уведомление об успехе
         if success:
-            print("\n🌐 Данные загружены в PostgreSQL")
-            print("   Сайт готов к работе!")
-        else:
-            print("\n⚠️ Данные НЕ загружены в PostgreSQL")
-            print("   Укажите DATABASE_URL и перезапустите")
+            notify_success(len(all_products), duration)
         
     except Exception as e:
         print(f"\n❌ ОШИБКА: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Уведомление об ошибке
+        notify_error(str(e))
         sys.exit(1)
 
 

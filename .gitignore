@@ -13,6 +13,7 @@ output/
 
 # Google API credentials (keep private!)
 scripts/credentials.json
+scripts/google_credentials.json
 
 # IDE
 .idea/
