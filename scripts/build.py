@@ -23,7 +23,7 @@ from datetime import datetime
 # Google Drive API
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # ============================================================================
 # КОНФИГУРАЦИЯ
@@ -123,8 +123,11 @@ def notify_error(error: str):
 # GOOGLE DRIVE
 # ============================================================================
 
-def get_drive_service():
+def get_drive_service(readonly: bool = True):
     """Создает сервис Google Drive API"""
+    # Используем полный доступ к Drive для возможности создания файлов
+    scopes = ['https://www.googleapis.com/auth/drive']
+    
     # Проверяем наличие credentials
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     
@@ -133,13 +136,13 @@ def get_drive_service():
         creds_dict = json.loads(creds_json)
         credentials = service_account.Credentials.from_service_account_info(
             creds_dict,
-            scopes=['https://www.googleapis.com/auth/drive.readonly']
+            scopes=scopes
         )
     elif os.path.exists(CREDENTIALS_FILE):
         # Credentials из файла (для локального запуска)
         credentials = service_account.Credentials.from_service_account_file(
             CREDENTIALS_FILE,
-            scopes=['https://www.googleapis.com/auth/drive.readonly']
+            scopes=scopes
         )
     else:
         raise FileNotFoundError(
@@ -208,6 +211,89 @@ def download_all_files_from_drive() -> bool:
     except Exception as e:
         print(f"❌ Ошибка при скачивании из Google Drive: {e}")
         return False
+
+
+def upload_file_to_drive(local_path: str, drive_filename: str) -> Optional[str]:
+    """Загружает файл на Google Drive"""
+    print(f"\n📤 Загрузка {drive_filename} на Google Drive...")
+    
+    try:
+        service = get_drive_service(readonly=False)
+        
+        file_metadata = {
+            'name': drive_filename,
+            'parents': [GOOGLE_DRIVE_FOLDER_ID]
+        }
+        
+        media = MediaFileUpload(
+            local_path,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            resumable=True
+        )
+        
+        # Проверяем, существует ли файл с таким именем
+        results = service.files().list(
+            q=f"name='{drive_filename}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false",
+            fields="files(id)"
+        ).execute()
+        
+        existing_files = results.get('files', [])
+        
+        if existing_files:
+            # Обновляем существующий файл
+            file_id = existing_files[0]['id']
+            file = service.files().update(
+                fileId=file_id,
+                media_body=media
+            ).execute()
+            print(f"  ✅ Файл обновлён: {drive_filename}")
+        else:
+            # Создаём новый файл
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+            print(f"  ✅ Файл создан: {drive_filename}")
+        
+        return file.get('id')
+        
+    except Exception as e:
+        print(f"  ⚠️ Ошибка загрузки на Drive: {e}")
+        return None
+
+
+def send_telegram_file(file_path: str, caption: str = ""):
+    """Отправляет файл в Telegram"""
+    if not TELEGRAM_BOT_TOKEN:
+        print("  ⚠️ TELEGRAM_BOT_TOKEN не указан")
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    
+    for chat_id in TELEGRAM_CHAT_IDS:
+        chat_id = chat_id.strip()
+        if not chat_id:
+            continue
+        try:
+            with open(file_path, 'rb') as f:
+                response = requests.post(
+                    url,
+                    data={
+                        "chat_id": chat_id,
+                        "caption": caption,
+                        "parse_mode": "HTML"
+                    },
+                    files={"document": f},
+                    timeout=120
+                )
+            if response.status_code == 200:
+                print(f"  📱 Telegram: файл отправлен в {chat_id}")
+            else:
+                print(f"  ⚠️ Telegram ошибка: {response.text}")
+        except Exception as e:
+            print(f"  ⚠️ Telegram ошибка: {e}")
+
 
 # ============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -500,17 +586,26 @@ def parse_axima() -> List[Dict]:
 # ГЕНЕРАЦИЯ EXCEL ФАЙЛОВ
 # ============================================================================
 
-def generate_internal(products: List[Dict]) -> str:
-    """Генерирует внутренний прайс с дилерскими ценами"""
+def generate_internal(products: List[Dict]) -> Tuple[str, str]:
+    """Генерирует внутренний прайс с дилерскими ценами
+    
+    Returns:
+        (local_path, filename_with_date)
+    """
     df = pd.DataFrame(products)
     df = df.sort_values(['manufacturer', 'article'])
     
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, "INTERNAL.xlsx")
+    
+    # Имя файла с датой
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    filename = f"INTERNAL_{date_str}.xlsx"
+    output_path = os.path.join(OUTPUT_DIR, filename)
+    
     df.to_excel(output_path, index=False)
     
-    print(f"✅ INTERNAL.xlsx создан ({len(df)} товаров)")
-    return output_path
+    print(f"✅ {filename} создан ({len(df)} товаров)")
+    return output_path, filename
 
 
 def get_margin(article: str, manufacturer: str, margins_dict: Dict) -> float:
@@ -718,14 +813,17 @@ def main():
         if len(all_products) == 0:
             raise Exception("Нет товаров для обработки!")
         
-        # 8. Генерация Excel файлов
-        print("\n💾 Генерация Excel файлов...")
-        generate_internal(all_products)
-        generate_public(all_products, settings_dict, margins_dict)
+        # 8. Генерация Excel файла (только INTERNAL с датой)
+        print("\n💾 Генерация Excel файла...")
+        internal_path, internal_filename = generate_internal(all_products)
         
         # 9. Загрузка в PostgreSQL
         print("\n🐘 Загрузка в PostgreSQL...")
         success = upload_to_postgresql(all_products, settings_dict, almaty_stock, astana_stock, margins_dict)
+        
+        # 10. Загрузка INTERNAL на Google Drive (без даты, чтобы можно было обновлять)
+        if use_google_drive:
+            upload_file_to_drive(internal_path, "INTERNAL.xlsx")
         
         # Подсчет времени
         duration = time.time() - start_time
@@ -735,9 +833,15 @@ def main():
         print(f"⏱ Время выполнения: {duration:.1f} сек")
         print("=" * 70)
         
-        # Уведомление об успехе
+        # 11. Отправка файла и уведомления в Telegram
         if success:
-            notify_success(len(all_products), duration)
+            caption = f"""✅ <b>Сборка завершена!</b>
+
+📊 Товаров: <b>{len(all_products):,}</b>
+⏱ Время: <b>{duration:.1f} сек</b>
+🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"""
+            
+            send_telegram_file(internal_path, caption)
         
     except Exception as e:
         print(f"\n❌ ОШИБКА: {e}")
